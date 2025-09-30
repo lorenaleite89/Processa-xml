@@ -748,6 +748,9 @@ class ValidadorXMLNFe:
                         'NFCe': faltante
                     })
         
+        if not lista_faltantes:
+            return pd.DataFrame()
+
         return pd.DataFrame(lista_faltantes).sort_values(['Serie', 'NFCe']).reset_index(drop=True)
 
     def _salvar_notas_faltantes(self, notas_faltantes):
