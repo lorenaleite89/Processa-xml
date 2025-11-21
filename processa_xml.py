@@ -6,8 +6,8 @@ from pathlib import Path
 from datetime import datetime, date
 import sqlalchemy
 import glob
-from config import (PATH, PATH_XML, PATH_RELATORIOS_65, PATH_ANALISES,
-    DB_CONNECTION_STRING, SERIE_CAIXA_MAP, CAIXA_SERIE_MAP)
+from config import (PATH_XML, PATH_RELATORIOS_65, PATH_ANALISES,
+    DB_CONNECTION_STRING, USE_DB)
 
 
 class ValidadorXMLNFe:
@@ -24,13 +24,8 @@ class ValidadorXMLNFe:
         self.diretorio_xml = diretorio_xml or PATH_XML
         self.data_inicio = self._converter_data(data_inicio)
         self.data_fim = self._converter_data(data_fim)
-        
-        # Importa mapeamentos do config
-        self.serie_caixa_map = SERIE_CAIXA_MAP
-        self.caixa_serie_map = CAIXA_SERIE_MAP
-        
+
         print(f"📁 Diretório XML configurado: {self.diretorio_xml}")
-        print(f"🗂️  Mapeamento Série→Caixa: {self.serie_caixa_map}")
         
         self.df_principal = pd.DataFrame(columns=[
             'CNPJ', 'Data', 'Mod', 'Serie', 'Status', 'NFCe', 'Pedido',
@@ -91,25 +86,46 @@ class ValidadorXMLNFe:
     def _arquivo_no_periodo(self, caminho_arquivo):
         """
         Verifica se o arquivo está dentro do período especificado
+        usando a data de emissão do XML (<dhEmi>)
         """
         if not self.data_inicio and not self.data_fim:
             return True
-        
+
         try:
-            # Obtém data de criação do arquivo
-            timestamp_criacao = os.path.getmtime(caminho_arquivo)
-            data_criacao = datetime.fromtimestamp(timestamp_criacao).date()
-            
-            # Verifica se está dentro do período
-            if self.data_inicio and data_criacao < self.data_inicio:
-                return False
-            if self.data_fim and data_criacao > self.data_fim:
-                return False
-            
-            return True
+            # Parse do XML para extrair a data de emissão
+            tree = ET.parse(caminho_arquivo)
+            root = tree.getroot()
+
+            # Define namespace
+            ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
+
+            # Busca o campo dhEmi
+            dh_emi = root.find('.//nfe:dhEmi', ns)
+
+            if dh_emi is None:
+                # Se não encontrou com namespace, tenta sem
+                dh_emi = root.find('.//dhEmi')
+
+            if dh_emi is not None and dh_emi.text:
+                # Extrai a data do formato ISO 8601 (2025-11-21T09:03:54-03:00)
+                data_emissao_str = dh_emi.text.split('T')[0]
+                data_emissao = datetime.strptime(data_emissao_str, '%Y-%m-%d').date()
+
+                # Verifica se está dentro do período
+                if self.data_inicio and data_emissao < self.data_inicio:
+                    return False
+                if self.data_fim and data_emissao > self.data_fim:
+                    return False
+
+                return True
+            else:
+                # Se não encontrou dhEmi, inclui o arquivo (comportamento padrão)
+                return True
+
         except Exception as e:
-            print(f"Erro ao verificar data do arquivo {caminho_arquivo}: {e}")
-            return True  # Em caso de erro, inclui o arquivo
+            # Em caso de erro ao ler o XML, inclui o arquivo
+            print(f"⚠️  Erro ao verificar data de emissão do arquivo {caminho_arquivo}: {e}")
+            return True
     
 
     
@@ -663,11 +679,6 @@ class ValidadorXMLNFe:
                     
                     # ✅ ABA COM NOTAS FALTANTES DO MÊS
                     if not notas_faltantes_mes.empty:
-                        # Adiciona informação de caixa às notas faltantes
-                        notas_faltantes_mes['Caixa'] = notas_faltantes_mes['Serie'].astype(str).map(
-                            self.serie_caixa_map
-                        ).fillna('Não identificado')
-                        
                         notas_faltantes_mes.to_excel(writer, sheet_name='Notas_Faltantes', index=False)
                     else:
                         # Cria aba vazia se não há faltantes
@@ -774,15 +785,12 @@ class ValidadorXMLNFe:
                 nome_arquivo = "Notas_Faltantes_Consolidado.xlsx"
             
             caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
-            
-            # Adiciona informação de caixa
+
+            # Copia os dados das notas faltantes
             notas_faltantes_completo = notas_faltantes.copy()
-            notas_faltantes_completo['Caixa'] = notas_faltantes_completo['Serie'].astype(str).map(
-                self.serie_caixa_map
-            ).fillna('Não identificado')
-            
+
             # Reordena colunas
-            colunas_ordenadas = ['Serie', 'Caixa', 'NFCe']
+            colunas_ordenadas = ['Serie', 'NFCe']
             if 'Sequencial_Inicio' in notas_faltantes_completo.columns:
                 colunas_ordenadas.extend(['Sequencial_Inicio', 'Sequencial_Fim'])
             
@@ -791,22 +799,22 @@ class ValidadorXMLNFe:
             with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
                 # Aba principal com todas as notas faltantes
                 notas_faltantes_completo.to_excel(writer, sheet_name='Notas_Faltantes', index=False)
-                
-                # Aba com resumo por série/caixa
-                resumo_faltantes = notas_faltantes_completo.groupby(['Serie', 'Caixa']).agg({
+
+                # Aba com resumo por série
+                resumo_faltantes = notas_faltantes_completo.groupby(['Serie']).agg({
                     'NFCe': 'count'
                 }).reset_index()
-                resumo_faltantes.columns = ['Serie', 'Caixa', 'Qtd_Faltantes']
-                resumo_faltantes.to_excel(writer, sheet_name='Resumo_por_Caixa', index=False)
-                
+                resumo_faltantes.columns = ['Serie', 'Qtd_Faltantes']
+                resumo_faltantes.to_excel(writer, sheet_name='Resumo_por_Serie', index=False)
+
                 # Aba com sequências problemáticas
                 if 'Sequencial_Inicio' in notas_faltantes_completo.columns:
-                    sequencias = notas_faltantes_completo.groupby(['Serie', 'Caixa']).agg({
+                    sequencias = notas_faltantes_completo.groupby(['Serie']).agg({
                         'Sequencial_Inicio': 'min',
                         'Sequencial_Fim': 'max',
                         'NFCe': 'count'
                     }).reset_index()
-                    sequencias.columns = ['Serie', 'Caixa', 'Primeiro_Numero', 'Ultimo_Numero', 'Qtd_Faltantes']
+                    sequencias.columns = ['Serie', 'Primeiro_Numero', 'Ultimo_Numero', 'Qtd_Faltantes']
                     sequencias.to_excel(writer, sheet_name='Sequencias_Analisadas', index=False)
             
             print(f"📋 Arquivo de notas faltantes salvo: {nome_arquivo}")
@@ -851,22 +859,7 @@ class ValidadorXMLNFe:
             'Maior Valor': round(df_mes['Valor'].max(), 2),
             'Menor Valor': round(df_mes[df_mes['Valor'] > 0]['Valor'].min(), 2)
         }
-        
-        # Adiciona estatísticas por caixa se houver mapeamento
-        if hasattr(self, 'serie_caixa_map'):
-            for serie, caixa in self.serie_caixa_map.items():
-                df_caixa = df_mes[df_mes['Serie'].astype(str) == serie]
-                if not df_caixa.empty:
-                    valor_proc_caixa = df_caixa[df_caixa['Status'] == 'Processada']['Valor'].sum()
-                    valor_canc_caixa = df_caixa[df_caixa['Status'] == 'Cancelada']['Valor'].sum()
-                    
-                    stats[f'{caixa} - Quantidade'] = len(df_caixa)
-                    stats[f'{caixa} - Processadas'] = len(df_caixa[df_caixa['Status'] == 'Processada'])
-                    stats[f'{caixa} - Canceladas'] = len(df_caixa[df_caixa['Status'] == 'Cancelada'])
-                    stats[f'{caixa} - Inutilizadas'] = len(df_caixa[df_caixa['Status'] == 'Inutilizada'])
-                    stats[f'{caixa} - Valor Processadas (R$)'] = round(valor_proc_caixa, 2)
-                    stats[f'{caixa} - Valor Canceladas (R$)'] = round(valor_canc_caixa, 2)
-        
+
         return stats
 
     def _salvar_consolidado(self, df_trabalho, arquivos_salvos):
@@ -1089,9 +1082,16 @@ class AnaliseCruzada:
     def consultar_ecf_log(self):
         """
         Consulta a tabela ECF Log do banco de dados
+        Somente executa se o banco de dados estiver configurado
         """
+        # Verifica se o banco está configurado
+        if not USE_DB or not DB_CONNECTION_STRING:
+            print("⚠️  Banco de dados não configurado. Pulando consulta ECF Log.")
+            self.df_ecf_log = pd.DataFrame()
+            return
+
         print("Consultando ECF Log no banco de dados...")
-        
+
         if self.df_xml.empty:
             print("Nenhum dado XML para processar")
             return
@@ -1752,7 +1752,114 @@ def exemplo_analise_completa(data_inicio, data_fim):
         import traceback
         traceback.print_exc()
         return None
-    
+
+
+class ProcessadorXML:
+    """
+    Classe simplificada para integração com a interface gráfica
+    Combina ValidadorXMLNFe e AnaliseCruzada em uma interface única
+    """
+    def __init__(self, diretorio_xml, diretorio_relatorios, diretorio_analises,
+                 data_inicio=None, data_fim=None):
+        """
+        Inicializa o processador com os diretórios necessários
+
+        Args:
+            diretorio_xml: Pasta contendo os XMLs fiscais
+            diretorio_relatorios: Pasta contendo os relatórios 65
+            diretorio_analises: Pasta onde serão salvos os resultados
+            data_inicio: Data inicial do período (date object)
+            data_fim: Data final do período (date object)
+        """
+        # Atualiza as variáveis globais para os processadores internos
+        import config
+        config.PATH_XML = diretorio_xml
+        config.PATH_RELATORIOS_65 = diretorio_relatorios
+        config.PATH_ANALISES = diretorio_analises
+
+        self.diretorio_xml = diretorio_xml
+        self.diretorio_relatorios = diretorio_relatorios
+        self.diretorio_analises = diretorio_analises
+        self.data_inicio = data_inicio
+        self.data_fim = data_fim
+
+        # Inicializa o validador
+        self.validador = ValidadorXMLNFe(
+            diretorio_xml=diretorio_xml,
+            data_inicio=data_inicio,
+            data_fim=data_fim
+        )
+
+    def carregar_xml(self):
+        """Carrega e processa os arquivos XML"""
+        print("\n📂 Carregando XMLs...")
+        lista_xmls = self.validador.obter_lista_xmls()
+        print(f"✓ Encontrados {len(lista_xmls)} arquivos XML")
+
+        if lista_xmls:
+            self.validador.processar_xml(lista_xmls)
+            self.validador.processar_notas_canceladas(lista_xmls)
+            print(f"✓ {len(self.validador.df_principal)} XMLs processados")
+
+    def carregar_relatorios_65(self):
+        """Carrega os relatórios 65 para análise cruzada"""
+        print("\n📊 Carregando Relatórios 65...")
+        try:
+            analise = AnaliseCruzada(self.validador)
+            analise.ler_relatorio_65()
+            self.analise_cruzada = analise
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar relatórios: {e}")
+            self.analise_cruzada = None
+
+    def carregar_ecf_log(self):
+        """Carrega dados do ECF Log (somente se BD estiver configurado)"""
+        if not USE_DB or not DB_CONNECTION_STRING:
+            print("\n⚠️  Banco de dados não configurado. Análise ECF Log será pulada.")
+            return
+
+        print("\n🗄️  Carregando dados do ECF Log...")
+        try:
+            if hasattr(self, 'analise_cruzada') and self.analise_cruzada:
+                self.analise_cruzada.consultar_ecf_log()
+            else:
+                print("⚠️  Análise cruzada não inicializada")
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar ECF Log: {e}")
+
+    def gerar_analises(self):
+        """Gera todas as análises e salva os resultados"""
+        print("\n📋 Gerando análises...")
+
+        try:
+            # Processa XMLs e gera análises básicas
+            notas_faltantes, stats_duplicatas = self.validador.processar_todos_xmls(
+                salvar_automatico=False
+            )
+
+            # Salva resultados básicos
+            arquivos_xml = self.validador.salvar_resultados()
+            print(f"✓ Análises de XML salvas: {len(arquivos_xml) if arquivos_xml else 0} arquivo(s)")
+
+            # Se há análise cruzada configurada, executa
+            if hasattr(self, 'analise_cruzada') and self.analise_cruzada:
+                try:
+                    print("\n📊 Executando análise cruzada...")
+                    resultados_cruzados = self.analise_cruzada.executar_analise_completa()
+                    arquivos_analise = self.analise_cruzada.salvar_analise_cruzada(resultados_cruzados)
+                    print(f"✓ Análise cruzada salva")
+                except Exception as e:
+                    print(f"⚠️  Erro na análise cruzada: {e}")
+
+            print("\n✅ Processamento concluído!")
+            print(f"📁 Resultados salvos em: {self.diretorio_analises}")
+
+        except Exception as e:
+            print(f"\n❌ Erro ao gerar análises: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
 
 # Para executar
 if __name__ == "__main__":
