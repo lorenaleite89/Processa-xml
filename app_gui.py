@@ -17,7 +17,7 @@ from processa_xml import ProcessadorXML
 class XMLAnalyzerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Analisador de XMLs Fiscais")
+        self.root.title("Analisador de XMLs de NFCe - Versão 1.0")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
 

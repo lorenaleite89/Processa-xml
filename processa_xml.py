@@ -6,8 +6,7 @@ from pathlib import Path
 from datetime import datetime, date
 import sqlalchemy
 import glob
-from config import (PATH_XML, PATH_RELATORIOS_65, PATH_ANALISES,
-    DB_CONNECTION_STRING, USE_DB)
+import config
 
 
 class ValidadorXMLNFe:
@@ -21,7 +20,7 @@ class ValidadorXMLNFe:
             data_fim (str ou date, optional): Data de fim do período
         """
         # Usa configuração padrão se não especificado
-        self.diretorio_xml = diretorio_xml or PATH_XML
+        self.diretorio_xml = diretorio_xml or config.PATH_XML
         self.data_inicio = self._converter_data(data_inicio)
         self.data_fim = self._converter_data(data_fim)
 
@@ -250,10 +249,14 @@ class ValidadorXMLNFe:
                         pedido = None
                         if inf_adic is not None:
                             inf_cpl = inf_adic.find('.//{http://www.portalfiscal.inf.br/nfe}infCpl')
-                            if inf_cpl is not None and inf_cpl.text:
-                                match = re.search(r'Pedido\s*(\d+)', inf_cpl.text)
-                                if match:
-                                    pedido = int(match.group(1))
+                            if inf_cpl is not None:
+                                # Extrai todo o texto, incluindo elementos filhos
+                                texto_completo = ''.join(inf_cpl.itertext())
+                                if texto_completo:
+                                    # Aceita "Pedido 283351" ou "Pedido:288963"
+                                    match = re.search(r'Pedido:?\s*(\d+)', texto_completo, re.IGNORECASE)
+                                    if match:
+                                        pedido = int(match.group(1))
                         
                         # Extrai valor total
                         valor = 0
@@ -571,7 +574,7 @@ class ValidadorXMLNFe:
         print("Salvando resultados por mês...")
         
         # Garante que a pasta de análises existe
-        os.makedirs(PATH_ANALISES, exist_ok=True)
+        os.makedirs(config.PATH_ANALISES, exist_ok=True)
         
         # Converte coluna Data para datetime para facilitar agrupamento
         df_trabalho = self.df_principal.copy()
@@ -621,7 +624,7 @@ class ValidadorXMLNFe:
             ano = mes.year
             mes_num = mes.month
             nome_arquivo = f"Analise_NFCe_{mes_num:02d}_{ano}.xlsx"
-            caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+            caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
             
             # Salva arquivo Excel
             try:
@@ -629,7 +632,7 @@ class ValidadorXMLNFe:
                     # Aba principal com todos os dados
                     df_mes.to_excel(writer, sheet_name='Dados_Principais', index=False)
                     
-                    # Aba com resumo por série/caixa
+                    # Aba com resumo por série
                     resumo_serie = df_mes.groupby('Serie').agg({
                         'NFCe': 'count',
                         'Valor': 'sum',
@@ -709,7 +712,7 @@ class ValidadorXMLNFe:
                 print(f"Erro ao salvar arquivo {nome_arquivo}: {e}")
         
         # Relatório final
-        print(f"\nResultados salvos em: {PATH_ANALISES}")
+        print(f"\nResultados salvos em: {config.PATH_ANALISES}")
         print("Resumo dos arquivos criados:")
         print("-" * 70)
         
@@ -784,7 +787,7 @@ class ValidadorXMLNFe:
             else:
                 nome_arquivo = "Notas_Faltantes_Consolidado.xlsx"
             
-            caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+            caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
 
             # Copia os dados das notas faltantes
             notas_faltantes_completo = notas_faltantes.copy()
@@ -820,12 +823,6 @@ class ValidadorXMLNFe:
             print(f"📋 Arquivo de notas faltantes salvo: {nome_arquivo}")
             print(f"   Total de notas faltantes: {len(notas_faltantes)}")
             
-            # Mostra resumo por caixa
-            if not notas_faltantes_completo.empty:
-                print("   Resumo por caixa:")
-                resumo = notas_faltantes_completo.groupby('Caixa')['NFCe'].count()
-                for caixa, qtd in resumo.items():
-                    print(f"     - {caixa}: {qtd} nota(s)")
             
         except Exception as e:
             print(f"Erro ao salvar arquivo de notas faltantes: {e}")
@@ -879,7 +876,7 @@ class ValidadorXMLNFe:
             else:
                 nome_consolidado = f"Analise_NFCe_Consolidado_{data_inicio}_a_{data_fim}.xlsx"
             
-            caminho_consolidado = os.path.join(PATH_ANALISES, nome_consolidado)
+            caminho_consolidado = os.path.join(config.PATH_ANALISES, nome_consolidado)
             
             with pd.ExcelWriter(caminho_consolidado, engine='openpyxl') as writer:
                 # Dados consolidados
@@ -990,8 +987,8 @@ class AnaliseCruzada:
         Lê os arquivos do Relatório 65 correspondentes ao período
         """
         print("Lendo arquivos do Relatório 65...")
-        print(f"Pasta configurada: {PATH_RELATORIOS_65}")
-        print(f"Pasta existe: {os.path.exists(PATH_RELATORIOS_65)}")
+        print(f"Pasta configurada: {config.PATH_RELATORIOS_65}")
+        print(f"Pasta existe: {os.path.exists(config.PATH_RELATORIOS_65)}")
         
         if self.df_xml.empty:
             print("Nenhum dado XML para processar")
@@ -999,7 +996,7 @@ class AnaliseCruzada:
         
         # Lista todos os arquivos na pasta para debug
         try:
-            arquivos_na_pasta = [f for f in os.listdir(PATH_RELATORIOS_65) 
+            arquivos_na_pasta = [f for f in os.listdir(config.PATH_RELATORIOS_65) 
                                if f.lower().endswith(('.xlsx', '.xls'))]
             print(f"Arquivos Excel encontrados na pasta ({len(arquivos_na_pasta)}):")
             for arquivo in arquivos_na_pasta[:5]:
@@ -1036,7 +1033,7 @@ class AnaliseCruzada:
             print(f"Buscando arquivos para {mes}:")
             
             for padrao in padroes_teste:
-                caminho_busca = os.path.join(PATH_RELATORIOS_65, padrao)
+                caminho_busca = os.path.join(config.PATH_RELATORIOS_65, padrao)
                 arquivos_encontrados = glob.glob(caminho_busca)
                 
                 if arquivos_encontrados:
@@ -1085,7 +1082,7 @@ class AnaliseCruzada:
         Somente executa se o banco de dados estiver configurado
         """
         # Verifica se o banco está configurado
-        if not USE_DB or not DB_CONNECTION_STRING:
+        if not config.USE_DB or not config.DB_CONNECTION_STRING:
             print("⚠️  Banco de dados não configurado. Pulando consulta ECF Log.")
             self.df_ecf_log = pd.DataFrame()
             return
@@ -1117,7 +1114,7 @@ class AnaliseCruzada:
             """
             
             # Executa consulta
-            engine = sqlalchemy.create_engine(DB_CONNECTION_STRING)
+            engine = sqlalchemy.create_engine(config.DB_CONNECTION_STRING)
             self.df_ecf_log = pd.read_sql(query, engine)
             
             # Adiciona coluna Serie_Nro para ECF Log
@@ -1467,7 +1464,7 @@ class AnaliseCruzada:
                 ano = mes.year
                 mes_num = mes.month
                 nome_arquivo = f"Analise_Cruzada_{mes_num:02d}_{ano}.xlsx"
-                caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+                caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
                 
                 # Salva arquivo Excel
                 with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
@@ -1539,7 +1536,7 @@ class AnaliseCruzada:
         else:
             nome_arquivo = "Analise_Cruzada_Consolidado_Completo.xlsx"
         
-        caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+        caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
         
         try:
             with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
@@ -1598,21 +1595,21 @@ def testar_busca_relatorio_65():
     """
     Função para testar isoladamente a busca dos relatórios 65
     """
-    from config import PATH_RELATORIOS_65
+    import config
     import os
     import glob
     
     print("=== TESTE DE BUSCA RELATÓRIO 65 ===")
-    print(f"Pasta configurada: {PATH_RELATORIOS_65}")
-    print(f"Pasta existe: {os.path.exists(PATH_RELATORIOS_65)}")
+    print(f"Pasta configurada: {config.PATH_RELATORIOS_65}")
+    print(f"Pasta existe: {os.path.exists(config.PATH_RELATORIOS_65)}")
     
-    if not os.path.exists(PATH_RELATORIOS_65):
+    if not os.path.exists(config.PATH_RELATORIOS_65):
         print("ERRO: Pasta não existe!")
         return
     
     # Lista todos os arquivos
     try:
-        arquivos = [f for f in os.listdir(PATH_RELATORIOS_65) if f.lower().endswith(('.xlsx', '.xls'))]
+        arquivos = [f for f in os.listdir(config.PATH_RELATORIOS_65) if f.lower().endswith(('.xlsx', '.xls'))]
         print(f"\nArquivos Excel encontrados ({len(arquivos)}):")
         for arquivo in arquivos:
             print(f"  - {arquivo}")
@@ -1632,7 +1629,7 @@ def testar_busca_relatorio_65():
         
         print(f"\nBuscando para '{mes}':")
         for padrao in padroes:
-            caminho_completo = os.path.join(PATH_RELATORIOS_65, padrao)
+            caminho_completo = os.path.join(config.PATH_RELATORIOS_65, padrao)
             encontrados = glob.glob(caminho_completo)
             print(f"  {padrao}: {len(encontrados)} arquivo(s)")
             for arquivo in encontrados:
@@ -1797,7 +1794,7 @@ class ProcessadorXML:
         print(f"✓ Encontrados {len(lista_xmls)} arquivos XML")
 
         if lista_xmls:
-            self.validador.processar_xml(lista_xmls)
+            self.validador.processar_todos_xmls(lista_xmls)
             self.validador.processar_notas_canceladas(lista_xmls)
             print(f"✓ {len(self.validador.df_principal)} XMLs processados")
 
@@ -1814,7 +1811,7 @@ class ProcessadorXML:
 
     def carregar_ecf_log(self):
         """Carrega dados do ECF Log (somente se BD estiver configurado)"""
-        if not USE_DB or not DB_CONNECTION_STRING:
+        if not config.USE_DB or not config.DB_CONNECTION_STRING:
             print("\n⚠️  Banco de dados não configurado. Análise ECF Log será pulada.")
             return
 
@@ -1867,4 +1864,3 @@ if __name__ == "__main__":
     data_fim = '2025-03-31'
 
     resultados = exemplo_analise_completa(data_inicio, data_fim )
-
