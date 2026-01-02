@@ -132,6 +132,7 @@ class ValidadorXMLNFe:
         """
         Processa notas canceladas nos XMLs de evento
         Estrutura: procEventoNFe/evento/infEvento
+        Identifica eventos de cancelamento (tpEvento 110111 ou 110112)
         """
         print("Processando notas canceladas...")
 
@@ -145,39 +146,47 @@ class ValidadorXMLNFe:
                 inf_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}infEvento')
                 
                 if inf_evento is not None:
-                    # Extrai dados diretamente do XML
-                    cnpj_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
-                    chave_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}chNFe')
-                    data_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}dhEvento')
-                    det_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}detEvento/{http://www.portalfiscal.inf.br/nfe}descEvento')
+                    # Verifica se é um evento de cancelamento
+                    tp_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
                     
-                    if all(elem is not None for elem in [cnpj_elem, chave_elem, data_elem, det_evento_elem]):
-                        chave_text = chave_elem.text
+                    # Processa apenas se for cancelamento (110111 ou 110112)
+                    if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
+                        # Extrai dados diretamente do XML
+                        cnpj_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+                        chave_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}chNFe')
+                        data_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}dhEvento')
+                        det_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}detEvento/{http://www.portalfiscal.inf.br/nfe}descEvento')
                         
-                        # Extrai informações da chave (já que não temos as tags separadas no evento)
-                        modelo = chave_text[20:22] if len(chave_text) >= 22 else ""
-                        serie = chave_text[22:25] if len(chave_text) >= 25 else ""
-                        numero = chave_text[25:34] if len(chave_text) >= 34 else ""
-                        tipo_env = "Normal" if len(chave_text) >= 35 and chave_text[34] == '1' else "Contingência"
-                        
-                        nova_linha = {
-                            'CNPJ': cnpj_elem.text,
-                            'Data': data_elem.text,
-                            'Mod': modelo,
-                            'Serie': serie,
-                            'Status': det_evento_elem.text,
-                            'NFCe': numero,
-                            'Pedido': None,
-                            'Valor': 0,
-                            'TipoEnv': tipo_env,
-                            'Versao': None,
-                            'Chave': chave_text,
-                            'Protocolo': None,
-                            'DtRecebimento': None,
-                            'CPF': ''
-                        }
-                        
-                        dados_notas.append(nova_linha)
+                        if all(elem is not None for elem in [cnpj_elem, chave_elem, data_elem]):
+                            chave_text = chave_elem.text
+                            
+                            # Extrai informações da chave (já que não temos as tags separadas no evento)
+                            modelo = chave_text[20:22] if len(chave_text) >= 22 else ""
+                            serie = chave_text[22:25] if len(chave_text) >= 25 else ""
+                            numero = chave_text[25:34] if len(chave_text) >= 34 else ""
+                            tipo_env = "Normal" if len(chave_text) >= 35 and chave_text[34] == '1' else "Contingência"
+                            
+                            # Status descritivo ou padrão
+                            status_desc = det_evento_elem.text if det_evento_elem is not None else "Cancelada"
+                            
+                            nova_linha = {
+                                'CNPJ': cnpj_elem.text,
+                                'Data': data_elem.text,
+                                'Mod': modelo,
+                                'Serie': serie,
+                                'Status': status_desc,
+                                'NFCe': numero,
+                                'Pedido': None,
+                                'Valor': 0,
+                                'TipoEnv': tipo_env,
+                                'Versao': None,
+                                'Chave': chave_text,
+                                'Protocolo': None,
+                                'DtRecebimento': None,
+                                'CPF': ''
+                            }
+                            
+                            dados_notas.append(nova_linha)
 
                                    
             except Exception as e:
@@ -242,8 +251,19 @@ class ValidadorXMLNFe:
                         tipo_emis = tpemis_elem.text if tpemis_elem is not None else "1"
                         tipo_env = "Normal" if tipo_emis == "1" else "Contingência"
                         
-                        # Verifica se está cancelada
-                        status = "Cancelada" if chave in self.notas_canceladas['Chave'].values else "Processada"
+                        # Verifica se está cancelada de forma inline (retEvento no mesmo arquivo)
+                        status = "Processada"
+                        
+                        # Primeiro, verifica se há retEvento indicando cancelamento inline
+                        ret_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}retEvento/{http://www.portalfiscal.inf.br/nfe}infEvento')
+                        if ret_evento is not None:
+                            tp_evento_elem = ret_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
+                            if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
+                                status = "Cancelada"
+                        
+                        # Se não foi cancelada inline, verifica se há XML de cancelamento separado
+                        if status == "Processada" and chave in self.notas_canceladas['Chave'].values:
+                            status = "Cancelada"
                         
                         # Extrai número do pedido se existir
                         pedido = None
