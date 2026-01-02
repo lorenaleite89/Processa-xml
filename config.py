@@ -1,37 +1,22 @@
-# CAMINHO DA PASTA 'Processa XML'
-
-PATH = r"D:/Clientes/Saboreie Matriz/Processa XML"
-
-# CAMINHO DOS ARQUIVOS XML
-PATH_XML = r"D:/Clientes/Saboreie Matriz/Processa XML/Backup XML"
-
-# CAMINHO DOS RELATÓRIOS 65
-PATH_RELATORIOS_65 = r"D:/Clientes/Saboreie Matriz/Processa XML/Relatorios 65"
-
-# CAMINHO PARA RESULTADOS DE ANALISES
-PATH_ANALISES = r"D:/Clientes/Saboreie Matriz/Processa XML/Analises"
-
-# CONFIGURAÇÃO DE BANCO DE DADOS
-
-NOME_DB = 'MISTERCHEFNET'
-USER_DB = 'sa'
-PASSWORD_DB = 'MISTERCHEFNET'
-
-DB_CONNECTION_STRING = f'mssql+pyodbc://{USER_DB}:{PASSWORD_DB}@localhost:1433/{NOME_DB}?driver=ODBC+Driver+17+for+SQL+Server'
+"""
+Configuração do sistema - valores são definidos via variáveis de ambiente
+ou pela interface gráfica
+"""
+import os
 
 
-# CORRESPONDÊNCIA ENTRE SÉRIE E CAIXA
-# Formato: 'série': 'nome_caixa'
-SERIE_CAIXA_MAP = {
-    '2': 'Caixa 1',
-    '3': 'Caixa 2', 
-    '4': 'Caixa 3'
-}
+# CAMINHOS DOS ARQUIVOS - definidos via ambiente ou GUI
+PATH_XML = os.environ.get('PATH_XML', '')
+PATH_RELATORIOS_65 = os.environ.get('PATH_RELATORIOS_65', '')
+PATH_ANALISES = os.environ.get('PATH_ANALISES', '')
 
-# CORRESPONDÊNCIA INVERSA: CAIXA PARA SÉRIE
-# Formato: 'nome_caixa': 'série'
-CAIXA_SERIE_MAP = {
-    'Caixa 1': '2',
-    'Caixa 2': '3',
-    'Caixa 3': '4'
-}
+# CONFIGURAÇÃO DE BANCO DE DADOS (OPCIONAL)
+USE_DB = os.environ.get('USE_DB', 'False').lower() == 'true'
+NOME_DB = os.environ.get('NOME_DB', '')
+USER_DB = os.environ.get('USER_DB', '')
+PASSWORD_DB = os.environ.get('PASSWORD_DB', '')
+
+# Construir connection string apenas se o banco de dados estiver configurado
+DB_CONNECTION_STRING = None
+if USE_DB and NOME_DB and USER_DB and PASSWORD_DB:
+    DB_CONNECTION_STRING = f'mssql+pyodbc://{USER_DB}:{PASSWORD_DB}@localhost:1433/{NOME_DB}?driver=ODBC+Driver+17+for+SQL+Server'

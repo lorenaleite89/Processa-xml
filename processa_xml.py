@@ -6,8 +6,7 @@ from pathlib import Path
 from datetime import datetime, date
 import sqlalchemy
 import glob
-from config import (PATH, PATH_XML, PATH_RELATORIOS_65, PATH_ANALISES,
-    DB_CONNECTION_STRING, SERIE_CAIXA_MAP, CAIXA_SERIE_MAP)
+import config
 
 
 class ValidadorXMLNFe:
@@ -21,16 +20,11 @@ class ValidadorXMLNFe:
             data_fim (str ou date, optional): Data de fim do período
         """
         # Usa configuração padrão se não especificado
-        self.diretorio_xml = diretorio_xml or PATH_XML
+        self.diretorio_xml = diretorio_xml or config.PATH_XML
         self.data_inicio = self._converter_data(data_inicio)
         self.data_fim = self._converter_data(data_fim)
-        
-        # Importa mapeamentos do config
-        self.serie_caixa_map = SERIE_CAIXA_MAP
-        self.caixa_serie_map = CAIXA_SERIE_MAP
-        
+
         print(f"📁 Diretório XML configurado: {self.diretorio_xml}")
-        print(f"🗂️  Mapeamento Série→Caixa: {self.serie_caixa_map}")
         
         self.df_principal = pd.DataFrame(columns=[
             'CNPJ', 'Data', 'Mod', 'Serie', 'Status', 'NFCe', 'Pedido',
@@ -91,25 +85,46 @@ class ValidadorXMLNFe:
     def _arquivo_no_periodo(self, caminho_arquivo):
         """
         Verifica se o arquivo está dentro do período especificado
+        usando a data de emissão do XML (<dhEmi>)
         """
         if not self.data_inicio and not self.data_fim:
             return True
-        
+
         try:
-            # Obtém data de criação do arquivo
-            timestamp_criacao = os.path.getmtime(caminho_arquivo)
-            data_criacao = datetime.fromtimestamp(timestamp_criacao).date()
-            
-            # Verifica se está dentro do período
-            if self.data_inicio and data_criacao < self.data_inicio:
-                return False
-            if self.data_fim and data_criacao > self.data_fim:
-                return False
-            
-            return True
+            # Parse do XML para extrair a data de emissão
+            tree = ET.parse(caminho_arquivo)
+            root = tree.getroot()
+
+            # Define namespace
+            ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
+
+            # Busca o campo dhEmi
+            dh_emi = root.find('.//nfe:dhEmi', ns)
+
+            if dh_emi is None:
+                # Se não encontrou com namespace, tenta sem
+                dh_emi = root.find('.//dhEmi')
+
+            if dh_emi is not None and dh_emi.text:
+                # Extrai a data do formato ISO 8601 (2025-11-21T09:03:54-03:00)
+                data_emissao_str = dh_emi.text.split('T')[0]
+                data_emissao = datetime.strptime(data_emissao_str, '%Y-%m-%d').date()
+
+                # Verifica se está dentro do período
+                if self.data_inicio and data_emissao < self.data_inicio:
+                    return False
+                if self.data_fim and data_emissao > self.data_fim:
+                    return False
+
+                return True
+            else:
+                # Se não encontrou dhEmi, inclui o arquivo (comportamento padrão)
+                return True
+
         except Exception as e:
-            print(f"Erro ao verificar data do arquivo {caminho_arquivo}: {e}")
-            return True  # Em caso de erro, inclui o arquivo
+            # Em caso de erro ao ler o XML, inclui o arquivo
+            print(f"⚠️  Erro ao verificar data de emissão do arquivo {caminho_arquivo}: {e}")
+            return True
     
 
     
@@ -117,6 +132,7 @@ class ValidadorXMLNFe:
         """
         Processa notas canceladas nos XMLs de evento
         Estrutura: procEventoNFe/evento/infEvento
+        Identifica eventos de cancelamento (tpEvento 110111 ou 110112)
         """
         print("Processando notas canceladas...")
 
@@ -130,39 +146,47 @@ class ValidadorXMLNFe:
                 inf_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}infEvento')
                 
                 if inf_evento is not None:
-                    # Extrai dados diretamente do XML
-                    cnpj_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
-                    chave_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}chNFe')
-                    data_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}dhEvento')
-                    det_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}detEvento/{http://www.portalfiscal.inf.br/nfe}descEvento')
+                    # Verifica se é um evento de cancelamento
+                    tp_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
                     
-                    if all(elem is not None for elem in [cnpj_elem, chave_elem, data_elem, det_evento_elem]):
-                        chave_text = chave_elem.text
+                    # Processa apenas se for cancelamento (110111 ou 110112)
+                    if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
+                        # Extrai dados diretamente do XML
+                        cnpj_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+                        chave_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}chNFe')
+                        data_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}dhEvento')
+                        det_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}detEvento/{http://www.portalfiscal.inf.br/nfe}descEvento')
                         
-                        # Extrai informações da chave (já que não temos as tags separadas no evento)
-                        modelo = chave_text[20:22] if len(chave_text) >= 22 else ""
-                        serie = chave_text[22:25] if len(chave_text) >= 25 else ""
-                        numero = chave_text[25:34] if len(chave_text) >= 34 else ""
-                        tipo_env = "Normal" if len(chave_text) >= 35 and chave_text[34] == '1' else "Contingência"
-                        
-                        nova_linha = {
-                            'CNPJ': cnpj_elem.text,
-                            'Data': data_elem.text,
-                            'Mod': modelo,
-                            'Serie': serie,
-                            'Status': det_evento_elem.text,
-                            'NFCe': numero,
-                            'Pedido': None,
-                            'Valor': 0,
-                            'TipoEnv': tipo_env,
-                            'Versao': None,
-                            'Chave': chave_text,
-                            'Protocolo': None,
-                            'DtRecebimento': None,
-                            'CPF': ''
-                        }
-                        
-                        dados_notas.append(nova_linha)
+                        if all(elem is not None for elem in [cnpj_elem, chave_elem, data_elem]):
+                            chave_text = chave_elem.text
+                            
+                            # Extrai informações da chave (já que não temos as tags separadas no evento)
+                            modelo = chave_text[20:22] if len(chave_text) >= 22 else ""
+                            serie = chave_text[22:25] if len(chave_text) >= 25 else ""
+                            numero = chave_text[25:34] if len(chave_text) >= 34 else ""
+                            tipo_env = "Normal" if len(chave_text) >= 35 and chave_text[34] == '1' else "Contingência"
+                            
+                            # Status descritivo ou padrão
+                            status_desc = det_evento_elem.text if det_evento_elem is not None else "Cancelada"
+                            
+                            nova_linha = {
+                                'CNPJ': cnpj_elem.text,
+                                'Data': data_elem.text,
+                                'Mod': modelo,
+                                'Serie': serie,
+                                'Status': status_desc,
+                                'NFCe': numero,
+                                'Pedido': None,
+                                'Valor': 0,
+                                'TipoEnv': tipo_env,
+                                'Versao': None,
+                                'Chave': chave_text,
+                                'Protocolo': None,
+                                'DtRecebimento': None,
+                                'CPF': ''
+                            }
+                            
+                            dados_notas.append(nova_linha)
 
                                    
             except Exception as e:
@@ -227,17 +251,32 @@ class ValidadorXMLNFe:
                         tipo_emis = tpemis_elem.text if tpemis_elem is not None else "1"
                         tipo_env = "Normal" if tipo_emis == "1" else "Contingência"
                         
-                        # Verifica se está cancelada
-                        status = "Cancelada" if chave in self.notas_canceladas['Chave'].values else "Processada"
+                        # Verifica se está cancelada de forma inline (retEvento no mesmo arquivo)
+                        status = "Processada"
+                        
+                        # Primeiro, verifica se há retEvento indicando cancelamento inline
+                        ret_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}retEvento/{http://www.portalfiscal.inf.br/nfe}infEvento')
+                        if ret_evento is not None:
+                            tp_evento_elem = ret_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
+                            if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
+                                status = "Cancelada"
+                        
+                        # Se não foi cancelada inline, verifica se há XML de cancelamento separado
+                        if status == "Processada" and chave in self.notas_canceladas['Chave'].values:
+                            status = "Cancelada"
                         
                         # Extrai número do pedido se existir
                         pedido = None
                         if inf_adic is not None:
                             inf_cpl = inf_adic.find('.//{http://www.portalfiscal.inf.br/nfe}infCpl')
-                            if inf_cpl is not None and inf_cpl.text:
-                                match = re.search(r'Pedido\s*(\d+)', inf_cpl.text)
-                                if match:
-                                    pedido = int(match.group(1))
+                            if inf_cpl is not None:
+                                # Extrai todo o texto, incluindo elementos filhos
+                                texto_completo = ''.join(inf_cpl.itertext())
+                                if texto_completo:
+                                    # Aceita "Pedido 283351" ou "Pedido:288963"
+                                    match = re.search(r'Pedido:?\s*(\d+)', texto_completo, re.IGNORECASE)
+                                    if match:
+                                        pedido = int(match.group(1))
                         
                         # Extrai valor total
                         valor = 0
@@ -555,7 +594,7 @@ class ValidadorXMLNFe:
         print("Salvando resultados por mês...")
         
         # Garante que a pasta de análises existe
-        os.makedirs(PATH_ANALISES, exist_ok=True)
+        os.makedirs(config.PATH_ANALISES, exist_ok=True)
         
         # Converte coluna Data para datetime para facilitar agrupamento
         df_trabalho = self.df_principal.copy()
@@ -605,7 +644,7 @@ class ValidadorXMLNFe:
             ano = mes.year
             mes_num = mes.month
             nome_arquivo = f"Analise_NFCe_{mes_num:02d}_{ano}.xlsx"
-            caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+            caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
             
             # Salva arquivo Excel
             try:
@@ -613,7 +652,7 @@ class ValidadorXMLNFe:
                     # Aba principal com todos os dados
                     df_mes.to_excel(writer, sheet_name='Dados_Principais', index=False)
                     
-                    # Aba com resumo por série/caixa
+                    # Aba com resumo por série
                     resumo_serie = df_mes.groupby('Serie').agg({
                         'NFCe': 'count',
                         'Valor': 'sum',
@@ -663,11 +702,6 @@ class ValidadorXMLNFe:
                     
                     # ✅ ABA COM NOTAS FALTANTES DO MÊS
                     if not notas_faltantes_mes.empty:
-                        # Adiciona informação de caixa às notas faltantes
-                        notas_faltantes_mes['Caixa'] = notas_faltantes_mes['Serie'].astype(str).map(
-                            self.serie_caixa_map
-                        ).fillna('Não identificado')
-                        
                         notas_faltantes_mes.to_excel(writer, sheet_name='Notas_Faltantes', index=False)
                     else:
                         # Cria aba vazia se não há faltantes
@@ -698,7 +732,7 @@ class ValidadorXMLNFe:
                 print(f"Erro ao salvar arquivo {nome_arquivo}: {e}")
         
         # Relatório final
-        print(f"\nResultados salvos em: {PATH_ANALISES}")
+        print(f"\nResultados salvos em: {config.PATH_ANALISES}")
         print("Resumo dos arquivos criados:")
         print("-" * 70)
         
@@ -773,16 +807,13 @@ class ValidadorXMLNFe:
             else:
                 nome_arquivo = "Notas_Faltantes_Consolidado.xlsx"
             
-            caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
-            
-            # Adiciona informação de caixa
+            caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
+
+            # Copia os dados das notas faltantes
             notas_faltantes_completo = notas_faltantes.copy()
-            notas_faltantes_completo['Caixa'] = notas_faltantes_completo['Serie'].astype(str).map(
-                self.serie_caixa_map
-            ).fillna('Não identificado')
-            
+
             # Reordena colunas
-            colunas_ordenadas = ['Serie', 'Caixa', 'NFCe']
+            colunas_ordenadas = ['Serie', 'NFCe']
             if 'Sequencial_Inicio' in notas_faltantes_completo.columns:
                 colunas_ordenadas.extend(['Sequencial_Inicio', 'Sequencial_Fim'])
             
@@ -791,33 +822,27 @@ class ValidadorXMLNFe:
             with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
                 # Aba principal com todas as notas faltantes
                 notas_faltantes_completo.to_excel(writer, sheet_name='Notas_Faltantes', index=False)
-                
-                # Aba com resumo por série/caixa
-                resumo_faltantes = notas_faltantes_completo.groupby(['Serie', 'Caixa']).agg({
+
+                # Aba com resumo por série
+                resumo_faltantes = notas_faltantes_completo.groupby(['Serie']).agg({
                     'NFCe': 'count'
                 }).reset_index()
-                resumo_faltantes.columns = ['Serie', 'Caixa', 'Qtd_Faltantes']
-                resumo_faltantes.to_excel(writer, sheet_name='Resumo_por_Caixa', index=False)
-                
+                resumo_faltantes.columns = ['Serie', 'Qtd_Faltantes']
+                resumo_faltantes.to_excel(writer, sheet_name='Resumo_por_Serie', index=False)
+
                 # Aba com sequências problemáticas
                 if 'Sequencial_Inicio' in notas_faltantes_completo.columns:
-                    sequencias = notas_faltantes_completo.groupby(['Serie', 'Caixa']).agg({
+                    sequencias = notas_faltantes_completo.groupby(['Serie']).agg({
                         'Sequencial_Inicio': 'min',
                         'Sequencial_Fim': 'max',
                         'NFCe': 'count'
                     }).reset_index()
-                    sequencias.columns = ['Serie', 'Caixa', 'Primeiro_Numero', 'Ultimo_Numero', 'Qtd_Faltantes']
+                    sequencias.columns = ['Serie', 'Primeiro_Numero', 'Ultimo_Numero', 'Qtd_Faltantes']
                     sequencias.to_excel(writer, sheet_name='Sequencias_Analisadas', index=False)
             
             print(f"📋 Arquivo de notas faltantes salvo: {nome_arquivo}")
             print(f"   Total de notas faltantes: {len(notas_faltantes)}")
             
-            # Mostra resumo por caixa
-            if not notas_faltantes_completo.empty:
-                print("   Resumo por caixa:")
-                resumo = notas_faltantes_completo.groupby('Caixa')['NFCe'].count()
-                for caixa, qtd in resumo.items():
-                    print(f"     - {caixa}: {qtd} nota(s)")
             
         except Exception as e:
             print(f"Erro ao salvar arquivo de notas faltantes: {e}")
@@ -851,22 +876,7 @@ class ValidadorXMLNFe:
             'Maior Valor': round(df_mes['Valor'].max(), 2),
             'Menor Valor': round(df_mes[df_mes['Valor'] > 0]['Valor'].min(), 2)
         }
-        
-        # Adiciona estatísticas por caixa se houver mapeamento
-        if hasattr(self, 'serie_caixa_map'):
-            for serie, caixa in self.serie_caixa_map.items():
-                df_caixa = df_mes[df_mes['Serie'].astype(str) == serie]
-                if not df_caixa.empty:
-                    valor_proc_caixa = df_caixa[df_caixa['Status'] == 'Processada']['Valor'].sum()
-                    valor_canc_caixa = df_caixa[df_caixa['Status'] == 'Cancelada']['Valor'].sum()
-                    
-                    stats[f'{caixa} - Quantidade'] = len(df_caixa)
-                    stats[f'{caixa} - Processadas'] = len(df_caixa[df_caixa['Status'] == 'Processada'])
-                    stats[f'{caixa} - Canceladas'] = len(df_caixa[df_caixa['Status'] == 'Cancelada'])
-                    stats[f'{caixa} - Inutilizadas'] = len(df_caixa[df_caixa['Status'] == 'Inutilizada'])
-                    stats[f'{caixa} - Valor Processadas (R$)'] = round(valor_proc_caixa, 2)
-                    stats[f'{caixa} - Valor Canceladas (R$)'] = round(valor_canc_caixa, 2)
-        
+
         return stats
 
     def _salvar_consolidado(self, df_trabalho, arquivos_salvos):
@@ -886,7 +896,7 @@ class ValidadorXMLNFe:
             else:
                 nome_consolidado = f"Analise_NFCe_Consolidado_{data_inicio}_a_{data_fim}.xlsx"
             
-            caminho_consolidado = os.path.join(PATH_ANALISES, nome_consolidado)
+            caminho_consolidado = os.path.join(config.PATH_ANALISES, nome_consolidado)
             
             with pd.ExcelWriter(caminho_consolidado, engine='openpyxl') as writer:
                 # Dados consolidados
@@ -997,8 +1007,8 @@ class AnaliseCruzada:
         Lê os arquivos do Relatório 65 correspondentes ao período
         """
         print("Lendo arquivos do Relatório 65...")
-        print(f"Pasta configurada: {PATH_RELATORIOS_65}")
-        print(f"Pasta existe: {os.path.exists(PATH_RELATORIOS_65)}")
+        print(f"Pasta configurada: {config.PATH_RELATORIOS_65}")
+        print(f"Pasta existe: {os.path.exists(config.PATH_RELATORIOS_65)}")
         
         if self.df_xml.empty:
             print("Nenhum dado XML para processar")
@@ -1006,7 +1016,7 @@ class AnaliseCruzada:
         
         # Lista todos os arquivos na pasta para debug
         try:
-            arquivos_na_pasta = [f for f in os.listdir(PATH_RELATORIOS_65) 
+            arquivos_na_pasta = [f for f in os.listdir(config.PATH_RELATORIOS_65) 
                                if f.lower().endswith(('.xlsx', '.xls'))]
             print(f"Arquivos Excel encontrados na pasta ({len(arquivos_na_pasta)}):")
             for arquivo in arquivos_na_pasta[:5]:
@@ -1043,7 +1053,7 @@ class AnaliseCruzada:
             print(f"Buscando arquivos para {mes}:")
             
             for padrao in padroes_teste:
-                caminho_busca = os.path.join(PATH_RELATORIOS_65, padrao)
+                caminho_busca = os.path.join(config.PATH_RELATORIOS_65, padrao)
                 arquivos_encontrados = glob.glob(caminho_busca)
                 
                 if arquivos_encontrados:
@@ -1089,9 +1099,16 @@ class AnaliseCruzada:
     def consultar_ecf_log(self):
         """
         Consulta a tabela ECF Log do banco de dados
+        Somente executa se o banco de dados estiver configurado
         """
+        # Verifica se o banco está configurado
+        if not config.USE_DB or not config.DB_CONNECTION_STRING:
+            print("⚠️  Banco de dados não configurado. Pulando consulta ECF Log.")
+            self.df_ecf_log = pd.DataFrame()
+            return
+
         print("Consultando ECF Log no banco de dados...")
-        
+
         if self.df_xml.empty:
             print("Nenhum dado XML para processar")
             return
@@ -1117,7 +1134,7 @@ class AnaliseCruzada:
             """
             
             # Executa consulta
-            engine = sqlalchemy.create_engine(DB_CONNECTION_STRING)
+            engine = sqlalchemy.create_engine(config.DB_CONNECTION_STRING)
             self.df_ecf_log = pd.read_sql(query, engine)
             
             # Adiciona coluna Serie_Nro para ECF Log
@@ -1467,7 +1484,7 @@ class AnaliseCruzada:
                 ano = mes.year
                 mes_num = mes.month
                 nome_arquivo = f"Analise_Cruzada_{mes_num:02d}_{ano}.xlsx"
-                caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+                caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
                 
                 # Salva arquivo Excel
                 with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
@@ -1539,7 +1556,7 @@ class AnaliseCruzada:
         else:
             nome_arquivo = "Analise_Cruzada_Consolidado_Completo.xlsx"
         
-        caminho_arquivo = os.path.join(PATH_ANALISES, nome_arquivo)
+        caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
         
         try:
             with pd.ExcelWriter(caminho_arquivo, engine='openpyxl') as writer:
@@ -1598,21 +1615,21 @@ def testar_busca_relatorio_65():
     """
     Função para testar isoladamente a busca dos relatórios 65
     """
-    from config import PATH_RELATORIOS_65
+    import config
     import os
     import glob
     
     print("=== TESTE DE BUSCA RELATÓRIO 65 ===")
-    print(f"Pasta configurada: {PATH_RELATORIOS_65}")
-    print(f"Pasta existe: {os.path.exists(PATH_RELATORIOS_65)}")
+    print(f"Pasta configurada: {config.PATH_RELATORIOS_65}")
+    print(f"Pasta existe: {os.path.exists(config.PATH_RELATORIOS_65)}")
     
-    if not os.path.exists(PATH_RELATORIOS_65):
+    if not os.path.exists(config.PATH_RELATORIOS_65):
         print("ERRO: Pasta não existe!")
         return
     
     # Lista todos os arquivos
     try:
-        arquivos = [f for f in os.listdir(PATH_RELATORIOS_65) if f.lower().endswith(('.xlsx', '.xls'))]
+        arquivos = [f for f in os.listdir(config.PATH_RELATORIOS_65) if f.lower().endswith(('.xlsx', '.xls'))]
         print(f"\nArquivos Excel encontrados ({len(arquivos)}):")
         for arquivo in arquivos:
             print(f"  - {arquivo}")
@@ -1632,7 +1649,7 @@ def testar_busca_relatorio_65():
         
         print(f"\nBuscando para '{mes}':")
         for padrao in padroes:
-            caminho_completo = os.path.join(PATH_RELATORIOS_65, padrao)
+            caminho_completo = os.path.join(config.PATH_RELATORIOS_65, padrao)
             encontrados = glob.glob(caminho_completo)
             print(f"  {padrao}: {len(encontrados)} arquivo(s)")
             for arquivo in encontrados:
@@ -1752,7 +1769,114 @@ def exemplo_analise_completa(data_inicio, data_fim):
         import traceback
         traceback.print_exc()
         return None
-    
+
+
+class ProcessadorXML:
+    """
+    Classe simplificada para integração com a interface gráfica
+    Combina ValidadorXMLNFe e AnaliseCruzada em uma interface única
+    """
+    def __init__(self, diretorio_xml, diretorio_relatorios, diretorio_analises,
+                 data_inicio=None, data_fim=None):
+        """
+        Inicializa o processador com os diretórios necessários
+
+        Args:
+            diretorio_xml: Pasta contendo os XMLs fiscais
+            diretorio_relatorios: Pasta contendo os relatórios 65
+            diretorio_analises: Pasta onde serão salvos os resultados
+            data_inicio: Data inicial do período (date object)
+            data_fim: Data final do período (date object)
+        """
+        # Atualiza as variáveis globais para os processadores internos
+        import config
+        config.PATH_XML = diretorio_xml
+        config.PATH_RELATORIOS_65 = diretorio_relatorios
+        config.PATH_ANALISES = diretorio_analises
+
+        self.diretorio_xml = diretorio_xml
+        self.diretorio_relatorios = diretorio_relatorios
+        self.diretorio_analises = diretorio_analises
+        self.data_inicio = data_inicio
+        self.data_fim = data_fim
+
+        # Inicializa o validador
+        self.validador = ValidadorXMLNFe(
+            diretorio_xml=diretorio_xml,
+            data_inicio=data_inicio,
+            data_fim=data_fim
+        )
+
+    def carregar_xml(self):
+        """Carrega e processa os arquivos XML"""
+        print("\n📂 Carregando XMLs...")
+        lista_xmls = self.validador.obter_lista_xmls()
+        print(f"✓ Encontrados {len(lista_xmls)} arquivos XML")
+
+        if lista_xmls:
+            self.validador.processar_todos_xmls(lista_xmls)
+            self.validador.processar_notas_canceladas(lista_xmls)
+            print(f"✓ {len(self.validador.df_principal)} XMLs processados")
+
+    def carregar_relatorios_65(self):
+        """Carrega os relatórios 65 para análise cruzada"""
+        print("\n📊 Carregando Relatórios 65...")
+        try:
+            analise = AnaliseCruzada(self.validador)
+            analise.ler_relatorio_65()
+            self.analise_cruzada = analise
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar relatórios: {e}")
+            self.analise_cruzada = None
+
+    def carregar_ecf_log(self):
+        """Carrega dados do ECF Log (somente se BD estiver configurado)"""
+        if not config.USE_DB or not config.DB_CONNECTION_STRING:
+            print("\n⚠️  Banco de dados não configurado. Análise ECF Log será pulada.")
+            return
+
+        print("\n🗄️  Carregando dados do ECF Log...")
+        try:
+            if hasattr(self, 'analise_cruzada') and self.analise_cruzada:
+                self.analise_cruzada.consultar_ecf_log()
+            else:
+                print("⚠️  Análise cruzada não inicializada")
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar ECF Log: {e}")
+
+    def gerar_analises(self):
+        """Gera todas as análises e salva os resultados"""
+        print("\n📋 Gerando análises...")
+
+        try:
+            # Processa XMLs e gera análises básicas
+            notas_faltantes, stats_duplicatas = self.validador.processar_todos_xmls(
+                salvar_automatico=False
+            )
+
+            # Salva resultados básicos
+            arquivos_xml = self.validador.salvar_resultados()
+            print(f"✓ Análises de XML salvas: {len(arquivos_xml) if arquivos_xml else 0} arquivo(s)")
+
+            # Se há análise cruzada configurada, executa
+            if hasattr(self, 'analise_cruzada') and self.analise_cruzada:
+                try:
+                    print("\n📊 Executando análise cruzada...")
+                    resultados_cruzados = self.analise_cruzada.executar_analise_completa()
+                    arquivos_analise = self.analise_cruzada.salvar_analise_cruzada(resultados_cruzados)
+                    print(f"✓ Análise cruzada salva")
+                except Exception as e:
+                    print(f"⚠️  Erro na análise cruzada: {e}")
+
+            print("\n✅ Processamento concluído!")
+            print(f"📁 Resultados salvos em: {self.diretorio_analises}")
+
+        except Exception as e:
+            print(f"\n❌ Erro ao gerar análises: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
 
 # Para executar
 if __name__ == "__main__":
@@ -1760,4 +1884,3 @@ if __name__ == "__main__":
     data_fim = '2025-03-31'
 
     resultados = exemplo_analise_completa(data_inicio, data_fim )
-
