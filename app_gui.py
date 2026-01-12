@@ -59,8 +59,8 @@ class XMLAnalyzerApp:
         ttk.Entry(paths_frame, textvariable=self.path_xml, width=50).grid(row=0, column=1, padx=5, pady=5)
         ttk.Button(paths_frame, text="Selecionar", command=lambda: self.select_folder(self.path_xml)).grid(row=0, column=2, pady=5)
 
-        # Path Relatórios
-        ttk.Label(paths_frame, text="Pasta dos Relatórios 65:").grid(row=1, column=0, sticky="w", pady=5)
+        # Path Relatórios (OPCIONAL)
+        ttk.Label(paths_frame, text="Pasta dos Relatórios 65 (Opcional):").grid(row=1, column=0, sticky="w", pady=5)
         ttk.Entry(paths_frame, textvariable=self.path_relatorios, width=50).grid(row=1, column=1, padx=5, pady=5)
         ttk.Button(paths_frame, text="Selecionar", command=lambda: self.select_folder(self.path_relatorios)).grid(row=1, column=2, pady=5)
 
@@ -151,16 +151,17 @@ class XMLAnalyzerApp:
             messagebox.showerror("Erro", "Selecione a pasta dos XMLs")
             return False
 
-        if not self.path_relatorios.get():
-            messagebox.showerror("Erro", "Selecione a pasta dos Relatórios 65")
-            return False
+        # PATH_RELATORIOS agora é OPCIONAL
+        # if not self.path_relatorios.get():
+        #     messagebox.showerror("Erro", "Selecione a pasta dos Relatórios 65")
+        #     return False
 
         if not self.path_analises.get():
             messagebox.showerror("Erro", "Selecione a pasta para salvar as Análises")
             return False
 
-        # Validar que PATH_ANALISES é diferente de PATH_RELATORIOS_65
-        if Path(self.path_analises.get()).resolve() == Path(self.path_relatorios.get()).resolve():
+        # Validar que PATH_ANALISES é diferente de PATH_RELATORIOS_65 (somente se relatórios foi fornecido)
+        if self.path_relatorios.get() and Path(self.path_analises.get()).resolve() == Path(self.path_relatorios.get()).resolve():
             messagebox.showerror("Erro", "A pasta de análises deve ser diferente da pasta de relatórios")
             return False
 
@@ -205,7 +206,7 @@ class XMLAnalyzerApp:
 
             # Configurar variáveis de ambiente para o processador
             os.environ['PATH_XML'] = self.path_xml.get()
-            os.environ['PATH_RELATORIOS_65'] = self.path_relatorios.get()
+            os.environ['PATH_RELATORIOS_65'] = self.path_relatorios.get() if self.path_relatorios.get() else ''
             os.environ['PATH_ANALISES'] = self.path_analises.get()
 
             # Configurar banco de dados se necessário
@@ -230,7 +231,10 @@ class XMLAnalyzerApp:
                 self.log(f"📅 Data fim: {data_fim.strftime('%d/%m/%Y')}")
 
             self.log(f"\n📁 Pasta XMLs: {self.path_xml.get()}")
-            self.log(f"📁 Pasta Relatórios: {self.path_relatorios.get()}")
+            if self.path_relatorios.get():
+                self.log(f"📁 Pasta Relatórios: {self.path_relatorios.get()}")
+            else:
+                self.log(f"⚠️  Pasta Relatórios: NÃO FORNECIDA (análise cruzada será ignorada)")
             self.log(f"📁 Pasta Análises: {self.path_analises.get()}")
 
             if self.use_db.get():
@@ -245,7 +249,7 @@ class XMLAnalyzerApp:
             # Criar processador e executar
             processador = ProcessadorXML(
                 diretorio_xml=self.path_xml.get(),
-                diretorio_relatorios=self.path_relatorios.get(),
+                diretorio_relatorios=self.path_relatorios.get() if self.path_relatorios.get() else None,
                 diretorio_analises=self.path_analises.get(),
                 data_inicio=data_inicio,
                 data_fim=data_fim
@@ -270,10 +274,13 @@ class XMLAnalyzerApp:
             try:
                 # Carregar dados
                 processador.carregar_xml()
-                processador.carregar_relatorios_65()
+                
+                # Carregar relatórios somente se fornecido
+                if self.path_relatorios.get():
+                    processador.carregar_relatorios_65()
 
-                if self.use_db.get():
-                    processador.carregar_ecf_log()
+                    if self.use_db.get():
+                        processador.carregar_ecf_log()
 
                 # Gerar análises
                 processador.gerar_analises()
