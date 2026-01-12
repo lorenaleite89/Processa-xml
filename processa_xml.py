@@ -1783,7 +1783,7 @@ class ProcessadorXML:
 
         Args:
             diretorio_xml: Pasta contendo os XMLs fiscais
-            diretorio_relatorios: Pasta contendo os relatórios 65
+            diretorio_relatorios: Pasta contendo os relatórios 65 (OPCIONAL - pode ser None)
             diretorio_analises: Pasta onde serão salvos os resultados
             data_inicio: Data inicial do período (date object)
             data_fim: Data final do período (date object)
@@ -1791,7 +1791,7 @@ class ProcessadorXML:
         # Atualiza as variáveis globais para os processadores internos
         import config
         config.PATH_XML = diretorio_xml
-        config.PATH_RELATORIOS_65 = diretorio_relatorios
+        config.PATH_RELATORIOS_65 = diretorio_relatorios if diretorio_relatorios else ''
         config.PATH_ANALISES = diretorio_analises
 
         self.diretorio_xml = diretorio_xml
@@ -1799,6 +1799,7 @@ class ProcessadorXML:
         self.diretorio_analises = diretorio_analises
         self.data_inicio = data_inicio
         self.data_fim = data_fim
+        self.usar_relatorios = bool(diretorio_relatorios)  # Flag para saber se usa análise cruzada
 
         # Inicializa o validador
         self.validador = ValidadorXMLNFe(
@@ -1810,16 +1811,17 @@ class ProcessadorXML:
     def carregar_xml(self):
         """Carrega e processa os arquivos XML"""
         print("\n📂 Carregando XMLs...")
-        lista_xmls = self.validador.obter_lista_xmls()
-        print(f"✓ Encontrados {len(lista_xmls)} arquivos XML")
-
-        if lista_xmls:
-            self.validador.processar_todos_xmls(lista_xmls)
-            self.validador.processar_notas_canceladas(lista_xmls)
-            print(f"✓ {len(self.validador.df_principal)} XMLs processados")
+        # processar_todos_xmls já faz tudo internamente, não precisa passar lista
+        notas_faltantes, stats_duplicatas = self.validador.processar_todos_xmls(salvar_automatico=False)
+        print(f"✓ {len(self.validador.df_principal)} XMLs processados")
 
     def carregar_relatorios_65(self):
         """Carrega os relatórios 65 para análise cruzada"""
+        if not self.usar_relatorios:
+            print("\n⚠️  Pasta de Relatórios 65 não fornecida. Análise cruzada será ignorada.")
+            self.analise_cruzada = None
+            return
+            
         print("\n📊 Carregando Relatórios 65...")
         try:
             analise = AnaliseCruzada(self.validador)
@@ -1831,6 +1833,10 @@ class ProcessadorXML:
 
     def carregar_ecf_log(self):
         """Carrega dados do ECF Log (somente se BD estiver configurado)"""
+        if not self.usar_relatorios:
+            print("\n⚠️  Análise cruzada não será executada (Relatórios 65 não fornecidos)")
+            return
+            
         if not config.USE_DB or not config.DB_CONNECTION_STRING:
             print("\n⚠️  Banco de dados não configurado. Análise ECF Log será pulada.")
             return
@@ -1849,17 +1855,13 @@ class ProcessadorXML:
         print("\n📋 Gerando análises...")
 
         try:
-            # Processa XMLs e gera análises básicas
-            notas_faltantes, stats_duplicatas = self.validador.processar_todos_xmls(
-                salvar_automatico=False
-            )
-
-            # Salva resultados básicos
+            # XMLs já foram processados em carregar_xml(), agora só salvamos os resultados
+            # Salva resultados básicos (Analise_NFCe e Notas_Faltantes)
             arquivos_xml = self.validador.salvar_resultados()
             print(f"✓ Análises de XML salvas: {len(arquivos_xml) if arquivos_xml else 0} arquivo(s)")
 
-            # Se há análise cruzada configurada, executa
-            if hasattr(self, 'analise_cruzada') and self.analise_cruzada:
+            # Se há análise cruzada configurada E relatórios foram fornecidos, executa
+            if self.usar_relatorios and hasattr(self, 'analise_cruzada') and self.analise_cruzada:
                 try:
                     print("\n📊 Executando análise cruzada...")
                     resultados_cruzados = self.analise_cruzada.executar_analise_completa()
@@ -1867,6 +1869,9 @@ class ProcessadorXML:
                     print(f"✓ Análise cruzada salva")
                 except Exception as e:
                     print(f"⚠️  Erro na análise cruzada: {e}")
+            elif not self.usar_relatorios:
+                print("\n⚠️  Análise cruzada ignorada (pasta de Relatórios 65 não fornecida)")
+                print("✓ Arquivos gerados: Analise_NFCe_*.xlsx e Notas_Faltantes_*.xlsx")
 
             print("\n✅ Processamento concluído!")
             print(f"📁 Resultados salvos em: {self.diretorio_analises}")
