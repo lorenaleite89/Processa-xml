@@ -326,7 +326,7 @@ class ValidadorXMLNFe:
                             'Valor': valor,
                             'TipoEnv': tipo_env,
                             'Versao': versao,
-                            'Chave': "'" + chave,  # Adiciona aspas como no R
+                            'Chave': chave,  # Removida a aspas simples no início
                             'Protocolo': protocolo,
                             'DtRecebimento': dt_recebimento,
                             'CPF': ''
@@ -453,6 +453,7 @@ class ValidadorXMLNFe:
     def verificar_notas_faltantes(self):
         """
         Verifica notas faltantes na sequência
+        Inicia o intervalo a partir da primeira NFCe processada (status != 'Inutilizada')
         """
         print("Verificando notas faltantes...")
         
@@ -465,14 +466,24 @@ class ValidadorXMLNFe:
         
         for serie in series_unicas:
             df_serie = self.df_principal[self.df_principal['Serie'] == serie]
-            numeros_nfce = df_serie['NFCe'].dropna().astype(int)
             
-            if len(numeros_nfce) > 0:
-                min_nfce = numeros_nfce.min()
-                max_nfce = numeros_nfce.max()
-                sequencia_completa = set(range(min_nfce, max_nfce + 1))
-                numeros_existentes = set(numeros_nfce)
+            # Filtra apenas notas processadas (status != 'Inutilizada') para determinar o início do intervalo
+            df_serie_processadas = df_serie[df_serie['Status'] != 'Inutilizada']
+            numeros_processados = df_serie_processadas['NFCe'].dropna().astype(int)
+            
+            if len(numeros_processados) > 0:
+                # Início: primeira NFCe processada (não inutilizada)
+                min_nfce = numeros_processados.min()
+                # Fim: última NFCe de qualquer status
+                max_nfce = df_serie['NFCe'].dropna().astype(int).max()
                 
+                # Cria sequência completa do intervalo
+                sequencia_completa = set(range(min_nfce, max_nfce + 1))
+                
+                # Remove todas as NFCes existentes (processadas + inutilizadas + canceladas)
+                numeros_existentes = set(df_serie['NFCe'].dropna().astype(int))
+                
+                # Faltantes são os que não existem no intervalo
                 faltantes = sequencia_completa - numeros_existentes
                 
                 for faltante in faltantes:
@@ -1296,6 +1307,12 @@ class AnaliseCruzada:
         
         df_analise['Duplicação Cancelada?'] = df_analise.apply(verificar_duplicacao_cancelada, axis=1)
         
+        # Remove a coluna 'Chave' original e renomeia 'ChaveLimpa' para 'Chave'
+        if 'Chave' in df_analise.columns:
+            df_analise = df_analise.drop('Chave', axis=1)
+        if 'ChaveLimpa' in df_analise.columns:
+            df_analise = df_analise.rename(columns={'ChaveLimpa': 'Chave'})
+        
         return df_analise
     
     def gerar_relatorio_inconsistencias(self):
@@ -1459,7 +1476,8 @@ class AnaliseCruzada:
                 df_xml_mes = self._remover_timezone_dataframe(df_xml_mes)
 
                 # Filtra outros DataFrames baseado nas chaves do XML do mês
-                chaves_mes = set(df_xml_mes['ChaveLimpa'])
+                # Nota: 'ChaveLimpa' foi renomeada para 'Chave' no criar_analise_xml()
+                chaves_mes = set(df_xml_mes['Chave'])
                 serie_nro_mes = set(df_xml_mes['Serie_Nro'])
                 
                 # Filtra ECF Log
@@ -1790,6 +1808,11 @@ class ProcessadorXML:
         """
         # Atualiza as variáveis globais para os processadores internos
         import config
+        import importlib
+        
+        # Recarrega o módulo config para pegar as variáveis de ambiente atualizadas
+        importlib.reload(config)
+        
         config.PATH_XML = diretorio_xml
         config.PATH_RELATORIOS_65 = diretorio_relatorios if diretorio_relatorios else ''
         config.PATH_ANALISES = diretorio_analises

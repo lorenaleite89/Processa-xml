@@ -97,7 +97,7 @@ class XMLAnalyzerApp:
         self.db_user_entry.config(state="disabled")
 
         ttk.Label(db_frame, text="Senha:").grid(row=3, column=0, sticky="w", pady=5)
-        self.db_password_entry = ttk.Entry(db_frame, textvariable=self.db_password, width=30, show="*")
+        self.db_password_entry = ttk.Entry(db_frame, textvariable=self.db_password, width=30)
         self.db_password_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
         self.db_password_entry.config(state="disabled")
 
