@@ -46,7 +46,7 @@ pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais app_gui.py
 
 ### Configurações Obrigatórias:
 - **Pasta dos XMLs**: Diretório contendo os arquivos XML fiscais
-- **Pasta dos Relatórios 65**: Diretório com os relatórios 65
+- **Pasta dos Relatórios 65**: Diretório com os relatórios 65 (Opcional)
 - **Pasta de Análises**: Onde os resultados serão salvos (deve ser diferente da pasta de relatórios)
 - **Período**: Datas de início e fim para filtrar os XMLs pela data de emissão
 

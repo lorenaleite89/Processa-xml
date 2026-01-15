@@ -14,6 +14,70 @@ import os
 from processa_xml import ProcessadorXML
 
 
+class MaskedDateEntry(ttk.Entry):
+    """
+    Entry widget com máscara para data no formato DD/MM/AAAA.
+    Insere as barras automaticamente conforme o usuário digita.
+    """
+    def __init__(self, master, textvariable=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.var = textvariable or tk.StringVar()
+        self.configure(textvariable=self.var)
+
+        # Bind para interceptar teclas
+        self.bind('<KeyPress>', self._on_key_press)
+        self.bind('<KeyRelease>', self._on_key_release)
+
+    def _format_date(self, digits):
+        """Formata os dígitos no padrão DD/MM/AAAA"""
+        formatted = ''
+        for i, digit in enumerate(digits):
+            if i == 2 or i == 4:
+                formatted += '/'
+            formatted += digit
+        return formatted
+
+    def _on_key_press(self, event):
+        # Permite teclas de controle (backspace, delete, setas, tab, etc.)
+        if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Home', 'End', 'Tab'):
+            return
+
+        # Ignora se não for dígito
+        if not event.char.isdigit():
+            return 'break'
+
+        # Pega valor atual e extrai apenas dígitos
+        current = self.var.get()
+        digits = ''.join(c for c in current if c.isdigit())
+
+        # Não permite mais que 8 dígitos
+        if len(digits) >= 8:
+            return 'break'
+
+        # Adiciona o novo dígito
+        digits += event.char
+
+        # Formata e atualiza
+        formatted = self._format_date(digits)
+        self.var.set(formatted)
+
+        # Move cursor para o final
+        self.after(1, lambda: self.icursor(len(formatted)))
+
+        return 'break'
+
+    def _on_key_release(self, event):
+        # Garante formatação correta após backspace/delete
+        if event.keysym in ('BackSpace', 'Delete'):
+            current = self.var.get()
+            digits = ''.join(c for c in current if c.isdigit())
+            formatted = self._format_date(digits)
+            if formatted != current:
+                cursor_pos = len(formatted)
+                self.var.set(formatted)
+                self.after(1, lambda: self.icursor(cursor_pos))
+
+
 class XMLAnalyzerApp:
     def __init__(self, root):
         self.root = root
@@ -73,11 +137,13 @@ class XMLAnalyzerApp:
         period_frame = ttk.LabelFrame(scrollable_frame, text="Período de Análise", padding=10)
         period_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
 
-        ttk.Label(period_frame, text="Data Início (DD/MM/AAAA):").grid(row=0, column=0, sticky="w", pady=5)
-        ttk.Entry(period_frame, textvariable=self.data_inicio, width=20).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(period_frame, text="Data Início:").grid(row=0, column=0, sticky="w", pady=5)
+        MaskedDateEntry(period_frame, textvariable=self.data_inicio, width=12).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(period_frame, text="(digite apenas os números)").grid(row=0, column=2, sticky="w", pady=5)
 
-        ttk.Label(period_frame, text="Data Fim (DD/MM/AAAA):").grid(row=1, column=0, sticky="w", pady=5)
-        ttk.Entry(period_frame, textvariable=self.data_fim, width=20).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(period_frame, text="Data Fim:").grid(row=1, column=0, sticky="w", pady=5)
+        MaskedDateEntry(period_frame, textvariable=self.data_fim, width=12).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(period_frame, text="(digite apenas os números)").grid(row=1, column=2, sticky="w", pady=5)
 
         # ===== SEÇÃO DE BANCO DE DADOS (OPCIONAL) =====
         db_frame = ttk.LabelFrame(scrollable_frame, text="Configuração de Banco de Dados (Opcional)", padding=10)

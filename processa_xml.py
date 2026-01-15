@@ -13,7 +13,7 @@ class ValidadorXMLNFe:
     def __init__(self, diretorio_xml=None, data_inicio=None, data_fim=None):
         """
         Inicializa o validador de XMLs NFe/NFCe
-        
+
         Args:
             diretorio_xml (str, optional): Caminho para o diretório. Se None, usa PATH_XML do config
             data_inicio (str ou date, optional): Data de início do período
@@ -23,6 +23,7 @@ class ValidadorXMLNFe:
         self.diretorio_xml = diretorio_xml or config.PATH_XML
         self.data_inicio = self._converter_data(data_inicio)
         self.data_fim = self._converter_data(data_fim)
+        self.cnpj_emit = None  # CNPJ do emitente extraído dos XMLs
 
         print(f"📁 Diretório XML configurado: {self.diretorio_xml}")
         
@@ -51,7 +52,23 @@ class ValidadorXMLNFe:
         if isinstance(data, date):
             return data
         return None
-        
+
+    def _gerar_prefixo_arquivo(self):
+        """
+        Gera o prefixo para os arquivos de saída no formato:
+        CNPJ-aaaammdd_hhmm-
+        O prefixo é cacheado para garantir consistência em uma mesma execução.
+        """
+        # Se já existe um prefixo cacheado, retorna ele
+        if hasattr(self, '_prefixo_cache') and self._prefixo_cache:
+            return self._prefixo_cache
+
+        if self.cnpj_emit:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+            self._prefixo_cache = f"{self.cnpj_emit}-{timestamp}-"
+            return self._prefixo_cache
+        return ""
+
     def obter_lista_xmls(self):
         """
         Obtém lista de arquivos XML no diretório e subdiretórios, 
@@ -141,14 +158,14 @@ class ValidadorXMLNFe:
             try:
                 tree = ET.parse(arquivo_xml)
                 root = tree.getroot()
-                
+
                 # Busca elemento infEvento dentro de evento
                 inf_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}infEvento')
-                
+
                 if inf_evento is not None:
                     # Verifica se é um evento de cancelamento
                     tp_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
-                    
+
                     # Processa apenas se for cancelamento (110111 ou 110112)
                     if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
                         # Extrai dados diretamente do XML
@@ -156,19 +173,32 @@ class ValidadorXMLNFe:
                         chave_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}chNFe')
                         data_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}dhEvento')
                         det_evento_elem = inf_evento.find('.//{http://www.portalfiscal.inf.br/nfe}detEvento/{http://www.portalfiscal.inf.br/nfe}descEvento')
-                        
+
                         if all(elem is not None for elem in [cnpj_elem, chave_elem, data_elem]):
+                            # Filtra por período se configurado
+                            if self.data_inicio or self.data_fim:
+                                try:
+                                    data_evento_str = data_elem.text.split('T')[0]
+                                    data_evento = datetime.strptime(data_evento_str, '%Y-%m-%d').date()
+
+                                    if self.data_inicio and data_evento < self.data_inicio:
+                                        continue
+                                    if self.data_fim and data_evento > self.data_fim:
+                                        continue
+                                except (ValueError, AttributeError):
+                                    pass  # Se não conseguir parsear a data, inclui o registro
+
                             chave_text = chave_elem.text
-                            
+
                             # Extrai informações da chave (já que não temos as tags separadas no evento)
                             modelo = chave_text[20:22] if len(chave_text) >= 22 else ""
                             serie = chave_text[22:25] if len(chave_text) >= 25 else ""
                             numero = chave_text[25:34] if len(chave_text) >= 34 else ""
                             tipo_env = "Normal" if len(chave_text) >= 35 and chave_text[34] == '1' else "Contingência"
-                            
+
                             # Status descritivo ou padrão
                             status_desc = det_evento_elem.text if det_evento_elem is not None else "Cancelada"
-                            
+
                             nova_linha = {
                                 'CNPJ': cnpj_elem.text,
                                 'Data': data_elem.text,
@@ -185,7 +215,7 @@ class ValidadorXMLNFe:
                                 'DtRecebimento': None,
                                 'CPF': ''
                             }
-                            
+
                             dados_notas.append(nova_linha)
 
                                    
@@ -234,11 +264,18 @@ class ValidadorXMLNFe:
                     inf_adic = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}infAdic')
                     
                     if all(elem is not None for elem in [inf_nfe, ide, emit]):
+                        # Extrai CNPJ do emitente (apenas uma vez)
+                        if self.cnpj_emit is None:
+                            cnpj_emit_elem = emit.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+                            if cnpj_emit_elem is not None and cnpj_emit_elem.text:
+                                self.cnpj_emit = cnpj_emit_elem.text
+                                print(f"📋 CNPJ do emitente identificado: {self.cnpj_emit}")
+
                         # Extrai chave
                         chave = inf_nfe.get('Id', '')
                         if chave.startswith('NFe'):
                             chave = chave[3:]
-                        
+
                         # Extrai informações diretamente das tags
                         mod_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}mod')
                         serie_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}serie')
@@ -368,18 +405,18 @@ class ValidadorXMLNFe:
             try:
                 tree = ET.parse(arquivo_xml)
                 root = tree.getroot()
-                
+
                 # Busca elemento inutNFe para extrair a chave
                 inut_nfe = root.find('.//{http://www.portalfiscal.inf.br/nfe}inutNFe')
                 # Busca retInutNFe para extrair os dados processados
                 ret_inut_nfe = root.find('.//{http://www.portalfiscal.inf.br/nfe}retInutNFe/{http://www.portalfiscal.inf.br/nfe}infInut')
-                
+
                 if inut_nfe is not None and ret_inut_nfe is not None:
                     # Extrai chave do elemento inutNFe
                     chave = inut_nfe.get('Id', '')
                     if chave.startswith('ID'):
                         chave = chave[2:]
-                    
+
                     # Extrai dados diretamente das tags do retInutNFe
                     cnpj_elem = ret_inut_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
                     dh_recbto_elem = ret_inut_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}dhRecbto')
@@ -387,8 +424,21 @@ class ValidadorXMLNFe:
                     serie_elem = ret_inut_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}serie')
                     n_nf_ini_elem = ret_inut_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}nNFIni')
                     n_nf_fin_elem = ret_inut_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}nNFFin')
-                    
+
                     if all(elem is not None for elem in [cnpj_elem, dh_recbto_elem, mod_elem, serie_elem, n_nf_ini_elem, n_nf_fin_elem]):
+                        # Filtra por período se configurado
+                        if self.data_inicio or self.data_fim:
+                            try:
+                                data_recbto_str = dh_recbto_elem.text.split('T')[0]
+                                data_recbto = datetime.strptime(data_recbto_str, '%Y-%m-%d').date()
+
+                                if self.data_inicio and data_recbto < self.data_inicio:
+                                    continue
+                                if self.data_fim and data_recbto > self.data_fim:
+                                    continue
+                            except (ValueError, AttributeError):
+                                pass  # Se não conseguir parsear a data, inclui o registro
+
                         # Inutilização única
                         if n_nf_ini_elem.text == n_nf_fin_elem.text:
                             nova_linha = {
@@ -407,14 +457,14 @@ class ValidadorXMLNFe:
                                 'DtRecebimento': None,
                                 'CPF': ''
                             }
-                            
+
                             dados_notas.append(nova_linha)
-                                                    
+
                         # Inutilização múltipla
                         else:
                             inicio = int(n_nf_ini_elem.text)
                             fim = int(n_nf_fin_elem.text)
-                            
+
                             for num_nf in range(inicio, fim + 1):
                                 nova_linha = {
                                     'CNPJ': cnpj_elem.text,
@@ -432,7 +482,7 @@ class ValidadorXMLNFe:
                                     'DtRecebimento': None,
                                     'CPF': ''
                                 }
-                                
+
                                 dados_notas.append(nova_linha)
                                            
             except Exception as e:
@@ -654,7 +704,8 @@ class ValidadorXMLNFe:
             # Formata nome do arquivo
             ano = mes.year
             mes_num = mes.month
-            nome_arquivo = f"Analise_NFCe_{mes_num:02d}_{ano}.xlsx"
+            prefixo = self._gerar_prefixo_arquivo()
+            nome_arquivo = f"{prefixo}Analise_NFCe_{mes_num:02d}_{ano}.xlsx"
             caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
             
             # Salva arquivo Excel
@@ -808,16 +859,17 @@ class ValidadorXMLNFe:
         
         try:
             # Nome do arquivo
+            prefixo = self._gerar_prefixo_arquivo()
             if self.data_inicio and self.data_fim:
                 data_inicio_str = self.data_inicio.strftime('%m-%Y')
                 data_fim_str = self.data_fim.strftime('%m-%Y')
                 if data_inicio_str == data_fim_str:
-                    nome_arquivo = f"Notas_Faltantes_{data_inicio_str}.xlsx"
+                    nome_arquivo = f"{prefixo}Notas_Faltantes_{data_inicio_str}.xlsx"
                 else:
-                    nome_arquivo = f"Notas_Faltantes_{data_inicio_str}_a_{data_fim_str}.xlsx"
+                    nome_arquivo = f"{prefixo}Notas_Faltantes_{data_inicio_str}_a_{data_fim_str}.xlsx"
             else:
-                nome_arquivo = "Notas_Faltantes_Consolidado.xlsx"
-            
+                nome_arquivo = f"{prefixo}Notas_Faltantes_Consolidado.xlsx"
+
             caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
 
             # Copia os dados das notas faltantes
@@ -897,16 +949,17 @@ class ValidadorXMLNFe:
         try:
             # Remove colunas auxiliares
             df_consolidado = df_trabalho.drop(['DataLimpa', 'AnoMes'], axis=1)
-            
+
             # Nome do arquivo consolidado baseado no período
+            prefixo = self._gerar_prefixo_arquivo()
             data_inicio = df_trabalho['DataLimpa'].min().strftime('%m-%Y')
             data_fim = df_trabalho['DataLimpa'].max().strftime('%m-%Y')
-            
+
             if data_inicio == data_fim:
-                nome_consolidado = f"Analise_NFCe_Consolidado_{data_inicio}.xlsx"
+                nome_consolidado = f"{prefixo}Analise_NFCe_Consolidado_{data_inicio}.xlsx"
             else:
-                nome_consolidado = f"Analise_NFCe_Consolidado_{data_inicio}_a_{data_fim}.xlsx"
-            
+                nome_consolidado = f"{prefixo}Analise_NFCe_Consolidado_{data_inicio}_a_{data_fim}.xlsx"
+
             caminho_consolidado = os.path.join(config.PATH_ANALISES, nome_consolidado)
             
             with pd.ExcelWriter(caminho_consolidado, engine='openpyxl') as writer:
@@ -1501,7 +1554,8 @@ class AnaliseCruzada:
                 # Nome do arquivo
                 ano = mes.year
                 mes_num = mes.month
-                nome_arquivo = f"Analise_Cruzada_{mes_num:02d}_{ano}.xlsx"
+                prefixo = self.validador._gerar_prefixo_arquivo()
+                nome_arquivo = f"{prefixo}Analise_Cruzada_{mes_num:02d}_{ano}.xlsx"
                 caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
                 
                 # Salva arquivo Excel
@@ -1564,16 +1618,17 @@ class AnaliseCruzada:
         Salva arquivo consolidado da análise cruzada
         """
         # Nome do arquivo consolidado
+        prefixo = self.validador._gerar_prefixo_arquivo()
         if self.validador.data_inicio and self.validador.data_fim:
             data_inicio_str = self.validador.data_inicio.strftime('%m-%Y')
             data_fim_str = self.validador.data_fim.strftime('%m-%Y')
             if data_inicio_str == data_fim_str:
-                nome_arquivo = f"Analise_Cruzada_Consolidado_{data_inicio_str}.xlsx"
+                nome_arquivo = f"{prefixo}Analise_Cruzada_Consolidado_{data_inicio_str}.xlsx"
             else:
-                nome_arquivo = f"Analise_Cruzada_Consolidado_{data_inicio_str}_a_{data_fim_str}.xlsx"
+                nome_arquivo = f"{prefixo}Analise_Cruzada_Consolidado_{data_inicio_str}_a_{data_fim_str}.xlsx"
         else:
-            nome_arquivo = "Analise_Cruzada_Consolidado_Completo.xlsx"
-        
+            nome_arquivo = f"{prefixo}Analise_Cruzada_Consolidado_Completo.xlsx"
+
         caminho_arquivo = os.path.join(config.PATH_ANALISES, nome_arquivo)
         
         try:
@@ -1809,10 +1864,10 @@ class ProcessadorXML:
         # Atualiza as variáveis globais para os processadores internos
         import config
         import importlib
-        
+
         # Recarrega o módulo config para pegar as variáveis de ambiente atualizadas
         importlib.reload(config)
-        
+
         config.PATH_XML = diretorio_xml
         config.PATH_RELATORIOS_65 = diretorio_relatorios if diretorio_relatorios else ''
         config.PATH_ANALISES = diretorio_analises
