@@ -94,16 +94,16 @@ Onde:
 ## Como Usar
 
 ### 1. Faça o download do app
-Faça o download do app em /dist/Analizador_XMLs_Fiscais_v...
-A versão atual é a 202601.
+- Faça o download do app em /dist/Analizador_XMLs_Fiscais_v...
+- A versão atual é a 202601.
 
-### 1. Configuracoes Obrigatorias
+### 2. Configuracoes Obrigatorias
 
 - **Pasta dos XMLs**: Diretorio contendo os arquivos XML fiscais (busca recursiva em subpastas)
 - **Pasta de Analises**: Diretorio onde os relatorios serao salvos
 - **Periodo**: Data de inicio e fim para filtrar os XMLs
 
-### 2. Configuracoes Opcionais
+### 3. Configuracoes Opcionais
 
 - **Pasta dos Relatorios 65**: Para realizar analise cruzada com relatorios do sistema
 - **Banco de Dados**: Para analise cruzada com ECF Log
@@ -111,7 +111,7 @@ A versão atual é a 202601.
   - Usuario
   - Senha
 
-### 3. Execucao
+### 4. Execucao
 
 1. Preencha as configuracoes
 2. Digite as datas (apenas numeros, as barras sao inseridas automaticamente)
