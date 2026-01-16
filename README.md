@@ -93,6 +93,10 @@ Onde:
 
 ## Como Usar
 
+### 1. Faça o download do app
+Faça o download do app em /dist/Analizador_XMLs_Fiscais_v...
+A versão atual é a 202601.
+
 ### 1. Configuracoes Obrigatorias
 
 - **Pasta dos XMLs**: Diretorio contendo os arquivos XML fiscais (busca recursiva em subpastas)
