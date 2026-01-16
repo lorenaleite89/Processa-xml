@@ -94,7 +94,7 @@ Onde:
 ## Como Usar
 
 ### 1. Faça o download do app
-- Faça o download do app em /dist/Analizador_XMLs_Fiscais_v...
+- Faça o download do app em /dist/Analizador_XMLs_Fiscais_v... (clique sobre o arquivo e depois em Raw para baixar ou copie o repositório com git clone)
 - A versão atual é a 202601.
 
 ### 2. Configuracoes Obrigatorias
