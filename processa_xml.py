@@ -538,8 +538,11 @@ class ValidadorXMLNFe:
                 
                 for faltante in faltantes:
                     lista_faltantes.append({'Serie': serie, 'NFCe': faltante})
-        
-        return pd.DataFrame(lista_faltantes)
+
+        if not lista_faltantes:
+            return pd.DataFrame()
+
+        return pd.DataFrame(lista_faltantes).sort_values(['Serie', 'NFCe']).reset_index(drop=True)
     
 
     def identificar_duplicatas(self):

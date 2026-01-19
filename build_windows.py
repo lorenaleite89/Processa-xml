@@ -8,9 +8,11 @@ import os
 import sys
 
 # Configurações do build
-app_name = "Analisador_XMLs_Fiscais"
+app_version = "1.0.0"
+app_name = f"Analisador_XMLs_Fiscais_v{app_version}"
 main_script = "app_gui.py"
 icon_file = None  # Você pode adicionar um ícone .ico aqui se desejar
+version_file = "version_info.txt"  # Arquivo com informações de versão para o exe
 
 # Argumentos para o PyInstaller
 pyinstaller_args = [
@@ -36,6 +38,10 @@ pyinstaller_args = [
 if icon_file and os.path.exists(icon_file):
     pyinstaller_args.append(f'--icon={icon_file}')
 
+# Adiciona arquivo de versão se existir
+if version_file and os.path.exists(version_file):
+    pyinstaller_args.append(f'--version-file={version_file}')
+
 def main():
     """Executa o build do executável"""
     print("=" * 70)
@@ -50,6 +56,7 @@ def main():
 
     print(f"📦 Arquivo principal: {main_script}")
     print(f"📝 Nome do executável: {app_name}.exe")
+    print(f"🏷️  Versão: {app_version}")
     print()
     print("🔨 Iniciando construção...")
     print()
