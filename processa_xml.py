@@ -244,7 +244,7 @@ class ValidadorXMLNFe:
     def processar_notas_enviadas(self, lista_xmls):
         """
         Processa notas enviadas (NFe/NFCe)
-        Estrutura: nfeProc/NFe/infNFe
+        Estrutura: nfeProc/NFe/infNFe (autorizado) ou NFe/infNFe (envio)
         """
         print("Processando notas enviadas...")
         dados_notas = []
@@ -253,20 +253,32 @@ class ValidadorXMLNFe:
             try:
                 tree = ET.parse(arquivo_xml)
                 root = tree.getroot()
-                
-                # Busca elemento NFe
-                nfe = root.find('.//{http://www.portalfiscal.inf.br/nfe}NFe')
+
+                # Verifica se o root é o próprio elemento NFe (XML de envio)
+                # ou se NFe é um descendente (XML autorizado com nfeProc)
+                ns = '{http://www.portalfiscal.inf.br/nfe}'
+                root_tag = root.tag.replace(ns, '')
+
+                if root_tag == 'NFe':
+                    # XML de envio - o root já é o NFe
+                    nfe = root
+                    xml_autorizado = False
+                else:
+                    # XML autorizado - busca NFe como descendente
+                    nfe = root.find(f'.//{ns}NFe')
+                    xml_autorizado = True
+
                 if nfe is not None:
-                    inf_nfe = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}infNFe')
-                    ide = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}ide')
-                    emit = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}emit')
-                    total = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}total/{http://www.portalfiscal.inf.br/nfe}ICMSTot')
-                    inf_adic = nfe.find('.//{http://www.portalfiscal.inf.br/nfe}infAdic')
-                    
+                    inf_nfe = nfe.find(f'.//{ns}infNFe')
+                    ide = nfe.find(f'.//{ns}ide')
+                    emit = nfe.find(f'.//{ns}emit')
+                    total = nfe.find(f'.//{ns}total/{ns}ICMSTot')
+                    inf_adic = nfe.find(f'.//{ns}infAdic')
+
                     if all(elem is not None for elem in [inf_nfe, ide, emit]):
                         # Extrai CNPJ do emitente (apenas uma vez)
                         if self.cnpj_emit is None:
-                            cnpj_emit_elem = emit.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+                            cnpj_emit_elem = emit.find(f'.//{ns}CNPJ')
                             if cnpj_emit_elem is not None and cnpj_emit_elem.text:
                                 self.cnpj_emit = cnpj_emit_elem.text
                                 print(f"📋 CNPJ do emitente identificado: {self.cnpj_emit}")
@@ -277,10 +289,10 @@ class ValidadorXMLNFe:
                             chave = chave[3:]
 
                         # Extrai informações diretamente das tags
-                        mod_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}mod')
-                        serie_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}serie')
-                        nnf_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}nNF')
-                        tpemis_elem = ide.find('.//{http://www.portalfiscal.inf.br/nfe}tpEmis')
+                        mod_elem = ide.find(f'.//{ns}mod')
+                        serie_elem = ide.find(f'.//{ns}serie')
+                        nnf_elem = ide.find(f'.//{ns}nNF')
+                        tpemis_elem = ide.find(f'.//{ns}tpEmis')
                         
                         modelo = mod_elem.text if mod_elem is not None else ""
                         serie = serie_elem.text if serie_elem is not None else ""
@@ -289,23 +301,27 @@ class ValidadorXMLNFe:
                         tipo_env = "Normal" if tipo_emis == "1" else "Contingência"
                         
                         # Verifica se está cancelada de forma inline (retEvento no mesmo arquivo)
-                        status = "Processada"
-                        
+                        # Define status inicial baseado no tipo de XML
+                        if xml_autorizado:
+                            status = "Processada"
+                        else:
+                            status = "Pendente"  # XML de envio sem autorização da Sefaz
+
                         # Primeiro, verifica se há retEvento indicando cancelamento inline
-                        ret_evento = root.find('.//{http://www.portalfiscal.inf.br/nfe}retEvento/{http://www.portalfiscal.inf.br/nfe}infEvento')
+                        ret_evento = root.find(f'.//{ns}retEvento/{ns}infEvento')
                         if ret_evento is not None:
-                            tp_evento_elem = ret_evento.find('.//{http://www.portalfiscal.inf.br/nfe}tpEvento')
+                            tp_evento_elem = ret_evento.find(f'.//{ns}tpEvento')
                             if tp_evento_elem is not None and tp_evento_elem.text in ['110111', '110112']:
                                 status = "Cancelada"
-                        
+
                         # Se não foi cancelada inline, verifica se há XML de cancelamento separado
-                        if status == "Processada" and chave in self.notas_canceladas['Chave'].values:
+                        if status in ["Processada", "Pendente"] and chave in self.notas_canceladas['Chave'].values:
                             status = "Cancelada"
                         
                         # Extrai número do pedido se existir
                         pedido = None
                         if inf_adic is not None:
-                            inf_cpl = inf_adic.find('.//{http://www.portalfiscal.inf.br/nfe}infCpl')
+                            inf_cpl = inf_adic.find(f'.//{ns}infCpl')
                             if inf_cpl is not None:
                                 # Extrai todo o texto, incluindo elementos filhos
                                 texto_completo = ''.join(inf_cpl.itertext())
@@ -314,41 +330,42 @@ class ValidadorXMLNFe:
                                     match = re.search(r'Pedido:?\s*(\d+)', texto_completo, re.IGNORECASE)
                                     if match:
                                         pedido = int(match.group(1))
-                        
+
                         # Extrai valor total
                         valor = 0
                         if total is not None:
-                            v_nf = total.find('.//{http://www.portalfiscal.inf.br/nfe}vNF')
+                            v_nf = total.find(f'.//{ns}vNF')
                             if v_nf is not None:
                                 valor = float(v_nf.text)
-                        
-                        # Extrai protocolo e data de recebimento
+
+                        # Extrai protocolo e data de recebimento (somente para XMLs autorizados)
                         protocolo = None
                         dt_recebimento = None
-                        prot_nfe = root.find('.//{http://www.portalfiscal.inf.br/nfe}protNFe/{http://www.portalfiscal.inf.br/nfe}infProt')
-                        if prot_nfe is not None:
-                            nrot = prot_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}nProt')
-                            dh_recbto = prot_nfe.find('.//{http://www.portalfiscal.inf.br/nfe}dhRecbto')
-                            if nrot is not None:
-                                protocolo = nrot.text
-                            if dh_recbto is not None:
-                                dt_recebimento = dh_recbto.text
-                        
+                        if xml_autorizado:
+                            prot_nfe = root.find(f'.//{ns}protNFe/{ns}infProt')
+                            if prot_nfe is not None:
+                                nrot = prot_nfe.find(f'.//{ns}nProt')
+                                dh_recbto = prot_nfe.find(f'.//{ns}dhRecbto')
+                                if nrot is not None:
+                                    protocolo = nrot.text
+                                if dh_recbto is not None:
+                                    dt_recebimento = dh_recbto.text
+
                         # Extrai versão
                         versao = None
-                        ver_proc = ide.find('.//{http://www.portalfiscal.inf.br/nfe}verProc')
+                        ver_proc = ide.find(f'.//{ns}verProc')
                         if ver_proc is not None:
                             versao = ver_proc.text
-                        
+
                         # Extrai data de emissão
                         data_emissao = None
-                        dh_emi = ide.find('.//{http://www.portalfiscal.inf.br/nfe}dhEmi')
+                        dh_emi = ide.find(f'.//{ns}dhEmi')
                         if dh_emi is not None:
                             data_emissao = dh_emi.text
-                        
+
                         # Extrai CNPJ
                         cnpj = None
-                        cnpj_elem = emit.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+                        cnpj_elem = emit.find(f'.//{ns}CNPJ')
                         if cnpj_elem is not None:
                             cnpj = cnpj_elem.text
                         
