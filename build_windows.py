@@ -8,7 +8,7 @@ import os
 import sys
 
 # Configurações do build
-app_version = "1.0.0"
+app_version = "1.2.0"
 app_name = f"Analisador_XMLs_Fiscais_v{app_version}"
 main_script = "app_gui.py"
 icon_file = None  # Você pode adicionar um ícone .ico aqui se desejar
@@ -51,14 +51,14 @@ def main():
 
     # Verifica se o arquivo principal existe
     if not os.path.exists(main_script):
-        print(f"❌ Erro: Arquivo {main_script} não encontrado!")
+        print(f"[ERRO] Arquivo {main_script} nao encontrado!")
         sys.exit(1)
 
-    print(f"📦 Arquivo principal: {main_script}")
-    print(f"📝 Nome do executável: {app_name}.exe")
-    print(f"🏷️  Versão: {app_version}")
+    print(f"[INFO] Arquivo principal: {main_script}")
+    print(f"[INFO] Nome do executavel: {app_name}.exe")
+    print(f"[INFO] Versao: {app_version}")
     print()
-    print("🔨 Iniciando construção...")
+    print("[BUILD] Iniciando construcao...")
     print()
 
     try:
@@ -67,24 +67,24 @@ def main():
 
         print()
         print("=" * 70)
-        print("✅ BUILD CONCLUÍDO COM SUCESSO!")
+        print("[OK] BUILD CONCLUIDO COM SUCESSO!")
         print("=" * 70)
         print()
-        print(f"📁 O executável foi criado em: dist/{app_name}.exe")
+        print(f"[INFO] O executavel foi criado em: dist/{app_name}.exe")
         print()
-        print("INSTRUÇÕES DE USO:")
+        print("INSTRUCOES DE USO:")
         print("1. Copie o arquivo .exe da pasta 'dist' para onde desejar")
         print("2. Execute o arquivo .exe")
-        print("3. Configure as pastas e opções na interface gráfica")
-        print("4. Clique em 'Processar XMLs' para iniciar a análise")
+        print("3. Configure as pastas e opcoes na interface grafica")
+        print("4. Clique em 'Processar XMLs' para iniciar a analise")
         print()
-        print("OBSERVAÇÃO: O executável NÃO precisa de Python instalado para funcionar!")
+        print("OBSERVACAO: O executavel NAO precisa de Python instalado para funcionar!")
         print()
 
     except Exception as e:
         print()
         print("=" * 70)
-        print("❌ ERRO DURANTE O BUILD")
+        print("[ERRO] ERRO DURANTE O BUILD")
         print("=" * 70)
         print(f"Erro: {e}")
         sys.exit(1)

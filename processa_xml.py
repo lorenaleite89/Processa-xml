@@ -572,8 +572,11 @@ class ValidadorXMLNFe:
         nfce_duplicadas = self.df_principal[self.df_principal.duplicated(subset=['NFCe'], keep=False)]['NFCe']
         self.df_principal['NFDuplicada'] = self.df_principal['NFCe'].isin(nfce_duplicadas).map({True: 'Sim', False: ''})
         
-        # Pedidos duplicados
-        df_com_pedido = self.df_principal[self.df_principal['Pedido'].notna()]
+        # Pedidos duplicados (considera apenas notas com status 'Processada' ou 'Pendente')
+        df_com_pedido = self.df_principal[
+            (self.df_principal['Pedido'].notna()) &
+            (self.df_principal['Status'].isin(['Processada', 'Pendente']))
+        ]
         pedidos_duplicados = df_com_pedido[df_com_pedido.duplicated(subset=['Pedido'], keep=False)]['Pedido']
         self.df_principal['PedDuplicado'] = self.df_principal['Pedido'].isin(pedidos_duplicados).map({True: 'Sim', False: ''})
         
@@ -590,6 +593,86 @@ class ValidadorXMLNFe:
             'valor_nfs_duplicadas': valor_nfs_duplicadas,
             'valor_pedidos_duplicados': valor_peds_duplicados
         }
+
+    def _gerar_notas_duplicadas(self, df_mes):
+        """
+        Gera DataFrame com notas duplicadas (mesmo pedido) para a aba Notas_Duplicadas.
+
+        Lógica para determinar a nota correta:
+        1. Se houver notas com status 'Processada', a correta é a de menor número entre as processadas
+        2. Se todas forem 'Pendente', a correta é a de menor número
+        3. A nota correta NÃO aparece na lista - apenas as duplicadas que referenciam ela
+
+        Returns:
+            DataFrame com colunas: CNPJ, Data, Mod, Serie, Status, NFCe, Pedido, Valor,
+                                   TipoEnv, Chave, Qtd NFCe Rep, NFCe Correta, Chave Correta
+        """
+        # Filtra apenas notas com PedDuplicado == 'Sim'
+        if 'PedDuplicado' not in df_mes.columns:
+            return pd.DataFrame()
+
+        df_duplicados = df_mes[df_mes['PedDuplicado'] == 'Sim'].copy()
+
+        if df_duplicados.empty:
+            return pd.DataFrame()
+
+        # Lista para armazenar os registros das notas duplicadas
+        registros_duplicadas = []
+
+        # Agrupa por pedido
+        for pedido, grupo in df_duplicados.groupby('Pedido'):
+            if pd.isna(pedido):
+                continue
+
+            # Separa notas por status
+            processadas = grupo[grupo['Status'] == 'Processada'].copy()
+            pendentes = grupo[grupo['Status'] == 'Pendente'].copy()
+
+            # Determina a nota correta
+            if not processadas.empty:
+                # Se houver processadas, a correta é a de menor número entre as processadas
+                nota_correta = processadas.loc[processadas['NFCe'].idxmin()]
+            elif not pendentes.empty:
+                # Se todas forem pendentes, a correta é a de menor número
+                nota_correta = pendentes.loc[pendentes['NFCe'].idxmin()]
+            else:
+                # Fallback: menor número do grupo
+                nota_correta = grupo.loc[grupo['NFCe'].idxmin()]
+
+            nfce_correta = nota_correta['NFCe']
+            chave_correta = nota_correta['Chave']
+
+            # Quantidade de notas repetidas (total do grupo - 1, a nota correta)
+            qtd_repetidas = len(grupo) - 1
+
+            # Adiciona todas as notas EXCETO a correta
+            for idx, row in grupo.iterrows():
+                if row['NFCe'] != nfce_correta:
+                    registros_duplicadas.append({
+                        'CNPJ': row.get('CNPJ', ''),
+                        'Data': row.get('Data', ''),
+                        'Mod': row.get('Mod', ''),
+                        'Serie': row.get('Serie', ''),
+                        'Status': row.get('Status', ''),
+                        'NFCe': row.get('NFCe', ''),
+                        'Pedido': row.get('Pedido', ''),
+                        'Valor': row.get('Valor', 0),
+                        'TipoEnv': row.get('TipoEnv', ''),
+                        'Chave': row.get('Chave', ''),
+                        'Qtd NFCe Rep': qtd_repetidas,
+                        'NFCe Correta': nfce_correta,
+                        'Chave Correta': chave_correta
+                    })
+
+        if not registros_duplicadas:
+            return pd.DataFrame()
+
+        df_resultado = pd.DataFrame(registros_duplicadas)
+
+        # Ordena por Pedido e NFCe
+        df_resultado = df_resultado.sort_values(['Pedido', 'NFCe']).reset_index(drop=True)
+
+        return df_resultado
 
     def processar_todos_xmls(self, salvar_automatico=False):  # Mudança aqui: padrão False
         """
@@ -795,10 +878,19 @@ class ValidadorXMLNFe:
                     stats = self._gerar_estatisticas_mes(df_mes, mes)
                     # Adiciona estatística de notas faltantes
                     stats['Notas Faltantes no Mês'] = len(notas_faltantes_mes)
-                    
+
                     stats_df = pd.DataFrame(list(stats.items()), columns=['Métrica', 'Valor'])
                     stats_df.to_excel(writer, sheet_name='Estatisticas', index=False)
-                
+
+                    # ✅ ABA COM NOTAS DUPLICADAS (mesmo pedido)
+                    notas_duplicadas_mes = self._gerar_notas_duplicadas(df_mes)
+                    if not notas_duplicadas_mes.empty:
+                        notas_duplicadas_mes.to_excel(writer, sheet_name='Notas_Duplicadas', index=False)
+                    else:
+                        pd.DataFrame({'Mensagem': ['Nenhuma nota duplicada encontrada neste mês']}).to_excel(
+                            writer, sheet_name='Notas_Duplicadas', index=False
+                        )
+
                 arquivos_salvos.append({
                     'mes': f"{mes_num:02d}/{ano}",
                     'arquivo': nome_arquivo,
@@ -985,7 +1077,7 @@ class ValidadorXMLNFe:
             with pd.ExcelWriter(caminho_consolidado, engine='openpyxl') as writer:
                 # Dados consolidados
                 df_consolidado.to_excel(writer, sheet_name='Dados_Consolidados', index=False)
-                
+
                 # Resumo por mês
                 df_trabalho['MesAno'] = df_trabalho['DataLimpa'].dt.strftime('%m/%Y')
                 resumo_mensal = df_trabalho.groupby('MesAno').agg({
@@ -994,11 +1086,20 @@ class ValidadorXMLNFe:
                 }).round(2)
                 resumo_mensal.columns = ['Qtd_Notas', 'Valor_Total']
                 resumo_mensal.to_excel(writer, sheet_name='Resumo_Mensal')
-                
+
                 # Lista de arquivos gerados
                 df_arquivos = pd.DataFrame(arquivos_salvos)
                 df_arquivos.to_excel(writer, sheet_name='Arquivos_Gerados', index=False)
-            
+
+                # ✅ ABA COM NOTAS DUPLICADAS CONSOLIDADAS
+                notas_duplicadas_consolidado = self._gerar_notas_duplicadas(df_consolidado)
+                if not notas_duplicadas_consolidado.empty:
+                    notas_duplicadas_consolidado.to_excel(writer, sheet_name='Notas_Duplicadas', index=False)
+                else:
+                    pd.DataFrame({'Mensagem': ['Nenhuma nota duplicada encontrada no período']}).to_excel(
+                        writer, sheet_name='Notas_Duplicadas', index=False
+                    )
+
             print(f"📋 Arquivo consolidado salvo: {nome_consolidado}")
             
         except Exception as e:

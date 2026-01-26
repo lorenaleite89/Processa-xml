@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Este aplicativo processa XMLs fiscais (NFe/NFCe) do sistema Totvs Chef e gera análises detalhadas em formato Excel.
+Este aplicativo processa XMLs fiscais (NFCe) do sistema Totvs Chef e gera análises detalhadas em formato Excel.
 
 ## Requisitos para Build
 
@@ -25,38 +25,39 @@ pip install -r requirements.txt
 python build_windows.py
 ```
 
-3. O executável será criado em `dist/Analisador_XMLs_Fiscais.exe`
+3. O executavel sera criado em `dist/Analisador_XMLs_Fiscais_vX.X.X.exe`
 
-### Opção 2: Manual com PyInstaller
+### Opcao 2: Manual com PyInstaller
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais app_gui.py
+pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.2.0 app_gui.py
 ```
+
+**Nota:** Atualize o numero da versao no nome conforme necessario.
 
 ## Estrutura do Projeto
 
-- `app_gui.py` - Interface gráfica do aplicativo
-- `processa_xml.py` - Lógica de processamento dos XMLs
-- `config.py` - Configurações (agora dinâmicas via GUI)
-- `requirements.txt` - Dependências do projeto
-- `build_windows.py` - Script automático para criar o executável
+- `app_gui.py` - Interface grafica do aplicativo
+- `processa_xml.py` - Logica de processamento dos XMLs
+- `config.py` - Configuracoes (agora dinamicas via GUI)
+- `requirements.txt` - Dependencias do projeto
+- `build_windows.py` - Script automatico para criar o executavel
+- `CHANGELOG.md` - Historico de versoes e mudancas
 
 ## Funcionalidades
 
 ### Configurações Obrigatórias:
 - **Pasta dos XMLs**: Diretório contendo os arquivos XML fiscais
-- **Pasta dos Relatórios 65**: Diretório com os relatórios 65 (Opcional)
 - **Pasta de Análises**: Onde os resultados serão salvos (deve ser diferente da pasta de relatórios)
 - **Período**: Datas de início e fim para filtrar os XMLs pela data de emissão
 
-### Configurações Opcionais (Banco de Dados):
+### Configurações Opcionais
+- **Pasta dos Relatórios 65**: Diretório com os relatórios 65 (Opcional)
+- **Banco de Dados**: Se configurado, o sistema realizará análise cruzada com a tabela ECF Log.
 - Nome do Banco
 - Usuário
 - Senha
-
-Se configurado, o sistema realizará análise cruzada com a tabela ECF Log.
-
 
 ## Estrutura do XML Processada
 
@@ -75,7 +76,7 @@ O sistema busca a data de emissão no seguinte caminho do XML:
 
 ## Distribuição
 
-O executável gerado (`\dist\Analisador_XMLs_Fiscais.exe`) pode ser distribuído e executado em qualquer máquina Windows sem necessidade de ter Python instalado.
+O executavel gerado (`\dist\Analisador_XMLs_Fiscais_vX.X.X.exe`) pode ser distribuido e executado em qualquer maquina Windows sem necessidade de ter Python instalado.
 
 ### Observações Importantes:
 - O executável é standalone (não precisa de Python)

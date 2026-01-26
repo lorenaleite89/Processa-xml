@@ -5,11 +5,11 @@
 
 ## Visao Geral
 
-Aplicativo Windows para processamento e analise de XMLs fiscais (NFe/NFCe) do sistema Totvs Chef. O sistema processa os arquivos XML, identifica notas processadas, canceladas e inutilizadas, e gera relatorios detalhados em formato Excel.
+Aplicativo Windows para processamento e analise de XMLs fiscais (NFCe) do sistema Totvs Chef. O sistema processa os arquivos XML, identifica notas processadas, canceladas e inutilizadas, e gera relatorios detalhados em formato Excel, com identificação de notas faltantes e emissões duplicadas.
 
 ## Funcionalidades Principais
 
-- Processamento de XMLs de notas fiscais eletronicas (NFe/NFCe)
+- Processamento de XMLs de notas fiscais eletronicas (NFCe)
 - Identificacao automatica de notas processadas, canceladas e inutilizadas
 - Filtragem por periodo (data de emissao)
 - Verificacao de notas faltantes na sequencia numerica
@@ -30,6 +30,7 @@ Relatorio mensal contendo:
 | **Resumo_por_Serie** | Totalizacao por serie: quantidade de notas, valor total, processadas, canceladas e seus respectivos valores |
 | **Notas_Faltantes** | Lista de numeros de NFCe faltantes na sequencia do mes |
 | **Estatisticas** | Metricas do mes: total de notas, valores, quantidade por status, etc. |
+| **Notas_Duplicadas** | Notas emitidas para o mesmo pedido, com referencia a nota correta (NFCe Correta, Chave Correta) |
 
 ### 2. Notas Faltantes Consolidado
 **Arquivo:** `CNPJ-AAAAMMDD_HHMM-Notas_Faltantes_MM-AAAA.xlsx`
@@ -52,6 +53,7 @@ Visao consolidada de todos os meses processados:
 | **Dados_Consolidados** | Todas as notas do periodo |
 | **Resumo_Mensal** | Totalizacao por mes |
 | **Arquivos_Gerados** | Lista de arquivos mensais gerados |
+| **Notas_Duplicadas** | Notas duplicadas consolidadas do periodo |
 
 ### 4. Analise Cruzada Mensal (quando configurado Relatorios 65)
 **Arquivo:** `CNPJ-AAAAMMDD_HHMM-Analise_Cruzada_MM_AAAA.xlsx`
@@ -93,9 +95,9 @@ Onde:
 
 ## Como Usar
 
-### 1. Faça o download do app
-- Faça o download do app em /dist/Analizador_XMLs_Fiscais_v... (clique sobre o arquivo e depois em Raw para baixar ou copie o repositório com git clone)
-- A versão atual é a 1.0.
+### 1. Faca o download do app
+- Faca o download do app em /dist/Analisador_XMLs_Fiscais_v... (clique sobre o arquivo e depois em Raw para baixar ou copie o repositorio com git clone)
+- A versao atual e a 1.2.0.
 
 ### 2. Configuracoes Obrigatorias
 
@@ -193,6 +195,7 @@ Processa-xml/
 ├── config.py            # Configuracoes
 ├── build_windows.py     # Script de build
 ├── requirements.txt     # Dependencias Python
+├── CHANGELOG.md         # Historico de versoes
 ├── README.md            # Este arquivo
 └── README_BUILD.md      # Instrucoes de build
 ```
