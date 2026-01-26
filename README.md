@@ -10,6 +10,7 @@ Aplicativo Windows para processamento e analise de XMLs fiscais (NFCe) do sistem
 ## Funcionalidades Principais
 
 - Processamento de XMLs de notas fiscais eletronicas (NFCe)
+- **Validacao de CNPJ unico**: Verifica se todos os XMLs sao do mesmo emitente antes de processar
 - Identificacao automatica de notas processadas, canceladas e inutilizadas
 - Filtragem por periodo (data de emissao)
 - Verificacao de notas faltantes na sequencia numerica
@@ -97,7 +98,7 @@ Onde:
 
 ### 1. Faca o download do app
 - Faca o download do app em /dist/Analisador_XMLs_Fiscais_v... (clique sobre o arquivo e depois em Raw para baixar ou copie o repositorio com git clone)
-- A versao atual e a 1.2.0.
+- A versao atual e a 1.3.0.
 
 ### 2. Configuracoes Obrigatorias
 
@@ -200,6 +201,23 @@ Processa-xml/
 └── README_BUILD.md      # Instrucoes de build
 ```
 
+## Validacao de CNPJ Unico
+
+O sistema realiza uma validacao automatica antes de processar os XMLs para garantir que todos os arquivos sejam do mesmo CNPJ emitente.
+
+### Como funciona:
+1. Ao iniciar o processamento, o sistema verifica o CNPJ de todos os XMLs na pasta
+2. Se todos os XMLs forem do mesmo CNPJ, o processamento continua normalmente
+3. Se forem encontrados XMLs de CNPJs diferentes:
+   - O processamento e **interrompido imediatamente**
+   - Uma mensagem de alerta e exibida listando todos os CNPJs encontrados
+   - O usuario deve verificar os arquivos e manter apenas XMLs de um unico CNPJ
+
+### Por que essa validacao existe?
+- Garante a integridade dos relatorios gerados
+- Evita mistura de dados de empresas diferentes
+- Previne erros na analise de sequencia numerica e duplicatas
+
 ## Suporte
 
 Em caso de problemas, verifique:
@@ -209,3 +227,4 @@ Em caso de problemas, verifique:
 3. Se ha XMLs no periodo especificado
 4. Os logs na area de "Log de Processamento" da interface
 5. Se a pasta de analises e diferente da pasta de relatorios
+6. Se todos os XMLs na pasta sao do mesmo CNPJ emitente

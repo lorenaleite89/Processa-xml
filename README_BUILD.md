@@ -31,7 +31,7 @@ python build_windows.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.2.0 app_gui.py
+pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.3.0 app_gui.py
 ```
 
 **Nota:** Atualize o numero da versao no nome conforme necessario.
@@ -47,8 +47,11 @@ pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.2.0 app_gui.p
 
 ## Funcionalidades
 
+### Validacao Automatica
+- **Validacao de CNPJ unico**: O sistema verifica se todos os XMLs sao do mesmo CNPJ antes de processar. Se forem encontrados CNPJs diferentes, o processamento e interrompido com uma mensagem de alerta.
+
 ### Configurações Obrigatórias:
-- **Pasta dos XMLs**: Diretório contendo os arquivos XML fiscais
+- **Pasta dos XMLs**: Diretório contendo os arquivos XML fiscais (todos devem ser do mesmo CNPJ)
 - **Pasta de Análises**: Onde os resultados serão salvos (deve ser diferente da pasta de relatórios)
 - **Período**: Datas de início e fim para filtrar os XMLs pela data de emissão
 

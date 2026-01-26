@@ -5,6 +5,14 @@ Todas as mudanças notáveis do Analisador de XMLs Fiscais serão documentadas n
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.0] - 2026-01-26
+
+### Adicionado
+- **Validacao de CNPJ unico**: O sistema agora valida se todos os XMLs na pasta sao do mesmo CNPJ emitente
+  - Se forem encontrados XMLs de CNPJs diferentes, o processamento e interrompido
+  - Exibe mensagem de alerta listando os CNPJs encontrados
+  - Solicita ao usuario que verifique e organize os arquivos antes de continuar
+
 ## [1.2.0] - 2026-01-26
 
 ### Adicionado

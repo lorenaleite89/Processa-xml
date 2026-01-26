@@ -8,7 +8,7 @@ import os
 import sys
 
 # Configurações do build
-app_version = "1.2.0"
+app_version = "1.3.0"
 app_name = f"Analisador_XMLs_Fiscais_v{app_version}"
 main_script = "app_gui.py"
 icon_file = None  # Você pode adicionar um ícone .ico aqui se desejar

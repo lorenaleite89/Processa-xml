@@ -9,6 +9,18 @@ import glob
 import config
 
 
+class CNPJsDiferentesError(Exception):
+    """Exceção levantada quando são encontrados XMLs de CNPJs diferentes na mesma pasta"""
+    def __init__(self, cnpjs_encontrados):
+        self.cnpjs_encontrados = cnpjs_encontrados
+        cnpjs_formatados = ', '.join(cnpjs_encontrados)
+        super().__init__(
+            f"Foram encontrados XMLs de {len(cnpjs_encontrados)} CNPJs diferentes na pasta!\n\n"
+            f"CNPJs encontrados:\n{cnpjs_formatados}\n\n"
+            f"Por favor, verifique os arquivos e mantenha apenas XMLs de um único CNPJ."
+        )
+
+
 class ValidadorXMLNFe:
     def __init__(self, diretorio_xml=None, data_inicio=None, data_fim=None):
         """
@@ -68,6 +80,63 @@ class ValidadorXMLNFe:
             self._prefixo_cache = f"{self.cnpj_emit}-{timestamp}-"
             return self._prefixo_cache
         return ""
+
+    def validar_cnpjs_unicos(self, lista_xmls):
+        """
+        Valida se todos os XMLs são do mesmo CNPJ emitente.
+        Se houver CNPJs diferentes, levanta uma exceção.
+
+        Args:
+            lista_xmls: Lista de caminhos para os arquivos XML
+
+        Raises:
+            CNPJsDiferentesError: Se forem encontrados XMLs de CNPJs diferentes
+        """
+        cnpjs_encontrados = set()
+        ns = '{http://www.portalfiscal.inf.br/nfe}'
+
+        print("🔍 Validando CNPJs dos XMLs...")
+
+        for arquivo_xml in lista_xmls:
+            try:
+                tree = ET.parse(arquivo_xml)
+                root = tree.getroot()
+
+                # Busca CNPJ do emitente em diferentes estruturas de XML
+                cnpj_elem = None
+
+                # Tenta encontrar em XMLs de NFe (autorizados ou de envio)
+                emit = root.find(f'.//{ns}emit')
+                if emit is not None:
+                    cnpj_elem = emit.find(f'.//{ns}CNPJ')
+
+                # Tenta encontrar em XMLs de eventos (cancelamento)
+                if cnpj_elem is None:
+                    inf_evento = root.find(f'.//{ns}infEvento')
+                    if inf_evento is not None:
+                        cnpj_elem = inf_evento.find(f'.//{ns}CNPJ')
+
+                # Tenta encontrar em XMLs de inutilização
+                if cnpj_elem is None:
+                    ret_inut = root.find('.//{http://www.portalfiscal.inf.br/nfe}retInutNFe')
+                    if ret_inut is not None:
+                        cnpj_elem = ret_inut.find('.//{http://www.portalfiscal.inf.br/nfe}CNPJ')
+
+                if cnpj_elem is not None and cnpj_elem.text:
+                    cnpjs_encontrados.add(cnpj_elem.text)
+
+            except Exception:
+                # Ignora erros de parsing nesta fase de validação
+                continue
+
+        if len(cnpjs_encontrados) > 1:
+            print(f"⚠️  ATENÇÃO: Encontrados {len(cnpjs_encontrados)} CNPJs diferentes!")
+            raise CNPJsDiferentesError(cnpjs_encontrados)
+
+        if cnpjs_encontrados:
+            print(f"✓ Validação OK: Todos os XMLs são do CNPJ {list(cnpjs_encontrados)[0]}")
+
+        return cnpjs_encontrados
 
     def obter_lista_xmls(self):
         """
@@ -685,7 +754,11 @@ class ValidadorXMLNFe:
         # Obtém lista de XMLs
         lista_xmls = self.obter_lista_xmls()
         print(f"Encontrados {len(lista_xmls)} arquivos XML no período especificado")
-        
+
+        # Valida se todos os XMLs são do mesmo CNPJ antes de processar
+        if lista_xmls:
+            self.validar_cnpjs_unicos(lista_xmls)
+
         if not lista_xmls:
             print("Nenhum arquivo XML encontrado no período especificado!")
             # Retorna valores padrão consistentes

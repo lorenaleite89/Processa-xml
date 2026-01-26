@@ -81,7 +81,7 @@ class MaskedDateEntry(ttk.Entry):
 class XMLAnalyzerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Analisador de XMLs de NFCe - Versão 1.2.0")
+        self.root.title("Analisador de XMLs de NFCe - Versão 1.3.0")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
 
