@@ -663,6 +663,97 @@ class ValidadorXMLNFe:
             'valor_pedidos_duplicados': valor_peds_duplicados
         }
 
+    def _encontrar_arquivo_por_chave(self, chave):
+        """
+        Busca o arquivo XML pela chave no diretório configurado.
+
+        Args:
+            chave: Chave da NFe/NFCe (44 dígitos)
+
+        Returns:
+            Caminho completo do arquivo ou None se não encontrado
+        """
+        if not chave:
+            return None
+
+        # Busca recursiva em todas as subpastas
+        for root, dirs, files in os.walk(self.diretorio_xml):
+            for arquivo in files:
+                if arquivo.lower().endswith('.xml') and chave in arquivo:
+                    return os.path.join(root, arquivo)
+        return None
+
+    def _comparar_tags_xml(self, chave_duplicada, chave_correta):
+        """
+        Compara tags específicas entre dois XMLs de NFCe.
+
+        Tags comparadas: <dest>, <det nItem...> e <total>
+
+        Args:
+            chave_duplicada: Chave da NFCe duplicada
+            chave_correta: Chave da NFCe correta
+
+        Returns:
+            'Ok' se as tags forem idênticas, 'Divergente' se diferentes,
+            'Erro' se não conseguir comparar
+        """
+        arquivo_duplicada = self._encontrar_arquivo_por_chave(chave_duplicada)
+        arquivo_correta = self._encontrar_arquivo_por_chave(chave_correta)
+
+        if not arquivo_duplicada or not arquivo_correta:
+            return 'Erro - Arquivo não encontrado'
+
+        try:
+            ns = '{http://www.portalfiscal.inf.br/nfe}'
+
+            # Parse dos dois XMLs
+            tree_dup = ET.parse(arquivo_duplicada)
+            tree_cor = ET.parse(arquivo_correta)
+            root_dup = tree_dup.getroot()
+            root_cor = tree_cor.getroot()
+
+            # Encontra o elemento NFe em cada arquivo
+            nfe_dup = root_dup.find(f'.//{ns}NFe') or root_dup
+            nfe_cor = root_cor.find(f'.//{ns}NFe') or root_cor
+
+            # Função auxiliar para serializar elemento XML para string
+            def elemento_para_string(elemento):
+                if elemento is None:
+                    return ''
+                return ET.tostring(elemento, encoding='unicode', method='xml')
+
+            # Função auxiliar para obter todos os elementos det
+            def obter_elementos_det(nfe):
+                return nfe.findall(f'.//{ns}det')
+
+            # Compara tag <dest>
+            dest_dup = elemento_para_string(nfe_dup.find(f'.//{ns}dest'))
+            dest_cor = elemento_para_string(nfe_cor.find(f'.//{ns}dest'))
+            if dest_dup != dest_cor:
+                return 'Divergente'
+
+            # Compara tags <det nItem...> (todos os itens)
+            det_dup = obter_elementos_det(nfe_dup)
+            det_cor = obter_elementos_det(nfe_cor)
+
+            if len(det_dup) != len(det_cor):
+                return 'Divergente'
+
+            for d_dup, d_cor in zip(det_dup, det_cor):
+                if elemento_para_string(d_dup) != elemento_para_string(d_cor):
+                    return 'Divergente'
+
+            # Compara tag <total>
+            total_dup = elemento_para_string(nfe_dup.find(f'.//{ns}total'))
+            total_cor = elemento_para_string(nfe_cor.find(f'.//{ns}total'))
+            if total_dup != total_cor:
+                return 'Divergente'
+
+            return 'Ok'
+
+        except Exception as e:
+            return f'Erro - {str(e)}'
+
     def _gerar_notas_duplicadas(self, df_mes):
         """
         Gera DataFrame com notas duplicadas (mesmo pedido) para a aba Notas_Duplicadas.
@@ -674,7 +765,8 @@ class ValidadorXMLNFe:
 
         Returns:
             DataFrame com colunas: CNPJ, Data, Mod, Serie, Status, NFCe, Pedido, Valor,
-                                   TipoEnv, Chave, Qtd NFCe Rep, NFCe Correta, Chave Correta
+                                   TipoEnv, Chave, Qtd NFCe Rep, NFCe Correta, Chave Correta,
+                                   Validação XML
         """
         # Filtra apenas notas com PedDuplicado == 'Sim'
         if 'PedDuplicado' not in df_mes.columns:
@@ -737,6 +829,13 @@ class ValidadorXMLNFe:
             return pd.DataFrame()
 
         df_resultado = pd.DataFrame(registros_duplicadas)
+
+        # Adiciona coluna de validação XML comparando tags específicas
+        print("Validando XMLs das notas duplicadas...")
+        df_resultado['Validação XML'] = df_resultado.apply(
+            lambda row: self._comparar_tags_xml(row['Chave'], row['Chave Correta']),
+            axis=1
+        )
 
         # Ordena por Pedido e NFCe
         df_resultado = df_resultado.sort_values(['Pedido', 'NFCe']).reset_index(drop=True)
@@ -2157,7 +2256,7 @@ class ProcessadorXML:
 
 # Para executar
 if __name__ == "__main__":
-    data_inicio = '2025-01-01'
-    data_fim = '2025-03-31'
+    data_inicio = '2025-12-01'
+    data_fim = '2025-12-31'
 
     resultados = exemplo_analise_completa(data_inicio, data_fim )

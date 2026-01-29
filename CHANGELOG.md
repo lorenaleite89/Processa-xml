@@ -5,6 +5,16 @@ Todas as mudanças notáveis do Analisador de XMLs Fiscais serão documentadas n
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.0] - 2026-01-29
+
+### Adicionado
+- **Validacao de conteudo XML para notas duplicadas**: Nova coluna "Validacao XML" na aba Notas_Duplicadas
+  - Compara automaticamente o conteudo da NFCe duplicada com a NFCe correta
+  - Tags validadas: `<dest>`, `<det nItem...>` e `<total>`
+  - Indica "Ok" se os XMLs forem identicos nas tags validadas
+  - Indica "Divergente" se houver diferenca no conteudo
+  - Permite identificar rapidamente se as notas duplicadas tem o mesmo conteudo fiscal
+
 ## [1.3.0] - 2026-01-26
 
 ### Adicionado
