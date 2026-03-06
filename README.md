@@ -98,7 +98,7 @@ Onde:
 
 ### 1. Faca o download do app
 - Faca o download do app em /dist/Analisador_XMLs_Fiscais_v... (clique sobre o arquivo e depois em Raw para baixar ou copie o repositorio com git clone)
-- A versao atual e a 1.3.0.
+- A versao atual e a 1.4.3.
 
 ### 2. Configuracoes Obrigatorias
 

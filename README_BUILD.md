@@ -4,6 +4,18 @@
 
 Este aplicativo processa XMLs fiscais (NFCe) do sistema Totvs Chef e gera análises detalhadas em formato Excel.
 
+### Crie o ambiente virtual
+python -m venv venv
+
+### Ative o ambiente virtual
+.\venv\Scripts\Activate.ps1
+
+**Nota:** Se você encontrar um erro de política de execução, execute:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+### Verifique se ativou (deve aparecer (venv) no prompt)
+
 ## Requisitos para Build
 
 Para criar o executável Windows, você precisa ter:
@@ -31,7 +43,7 @@ python build_windows.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.3.0 app_gui.py
+pyinstaller --onefile --windowed --name=Analisador_XMLs_Fiscais_v1.4.3 app_gui.py
 ```
 
 **Nota:** Atualize o numero da versao no nome conforme necessario.

@@ -369,12 +369,8 @@ class ValidadorXMLNFe:
                         tipo_emis = tpemis_elem.text if tpemis_elem is not None else "1"
                         tipo_env = "Normal" if tipo_emis == "1" else "Contingência"
                         
-                        # Verifica se está cancelada de forma inline (retEvento no mesmo arquivo)
-                        # Define status inicial baseado no tipo de XML
-                        if xml_autorizado:
-                            status = "Processada"
-                        else:
-                            status = "Pendente"  # XML de envio sem autorização da Sefaz
+                        # Define status inicial: toda nota não cancelada é tratada como processada
+                        status = "Processada"
 
                         # Primeiro, verifica se há retEvento indicando cancelamento inline
                         ret_evento = root.find(f'.//{ns}retEvento/{ns}infEvento')
@@ -384,7 +380,7 @@ class ValidadorXMLNFe:
                                 status = "Cancelada"
 
                         # Se não foi cancelada inline, verifica se há XML de cancelamento separado
-                        if status in ["Processada", "Pendente"] and chave in self.notas_canceladas['Chave'].values:
+                        if status == "Processada" and chave in self.notas_canceladas['Chave'].values:
                             status = "Cancelada"
                         
                         # Extrai número do pedido se existir
@@ -641,10 +637,10 @@ class ValidadorXMLNFe:
         nfce_duplicadas = self.df_principal[self.df_principal.duplicated(subset=['NFCe'], keep=False)]['NFCe']
         self.df_principal['NFDuplicada'] = self.df_principal['NFCe'].isin(nfce_duplicadas).map({True: 'Sim', False: ''})
         
-        # Pedidos duplicados (considera apenas notas com status 'Processada' ou 'Pendente')
+        # Pedidos duplicados (considera apenas notas com status 'Processada')
         df_com_pedido = self.df_principal[
             (self.df_principal['Pedido'].notna()) &
-            (self.df_principal['Status'].isin(['Processada', 'Pendente']))
+            (self.df_principal['Status'] == 'Processada')
         ]
         pedidos_duplicados = df_com_pedido[df_com_pedido.duplicated(subset=['Pedido'], keep=False)]['Pedido']
         self.df_principal['PedDuplicado'] = self.df_principal['Pedido'].isin(pedidos_duplicados).map({True: 'Sim', False: ''})
@@ -662,6 +658,45 @@ class ValidadorXMLNFe:
             'valor_nfs_duplicadas': valor_nfs_duplicadas,
             'valor_pedidos_duplicados': valor_peds_duplicados
         }
+
+    def remover_processadas_com_cancelada_mesma_serie_nfce(self):
+        """
+        Remove registros com status 'Processada' quando existir, para a mesma
+        Série e NFCe, outro registro com status 'Cancelada'.
+        """
+        if self.df_principal.empty:
+            return
+
+        colunas_chave = ['Serie', 'NFCe']
+        grupos_com_ambos_status = (
+            self.df_principal[
+                self.df_principal['Status'].isin(['Processada', 'Cancelada'])
+            ]
+            .groupby(colunas_chave)['Status']
+            .agg(lambda status: {'Processada', 'Cancelada'}.issubset(set(status)))
+        )
+
+        grupos_com_ambos_status = grupos_com_ambos_status[grupos_com_ambos_status].index
+
+        if len(grupos_com_ambos_status) == 0:
+            return
+
+        chaves_para_remover = set(grupos_com_ambos_status.tolist())
+        mascara_remocao = self.df_principal.apply(
+            lambda row: (
+                row['Status'] == 'Processada' and
+                (row['Serie'], row['NFCe']) in chaves_para_remover
+            ),
+            axis=1
+        )
+
+        qtd_removida = int(mascara_remocao.sum())
+        if qtd_removida > 0:
+            self.df_principal = self.df_principal[~mascara_remocao].reset_index(drop=True)
+            print(
+                f"Removidos {qtd_removida} registros 'Processada' com correspondente "
+                f"'Cancelada' na mesma Série e NFCe."
+            )
 
     def _encontrar_arquivo_por_chave(self, chave):
         """
@@ -760,7 +795,7 @@ class ValidadorXMLNFe:
 
         Lógica para determinar a nota correta:
         1. Se houver notas com status 'Processada', a correta é a de menor número entre as processadas
-        2. Se todas forem 'Pendente', a correta é a de menor número
+        2. Caso contrário, usa a de menor número do grupo
         3. A nota correta NÃO aparece na lista - apenas as duplicadas que referenciam ela
 
         Returns:
@@ -787,15 +822,10 @@ class ValidadorXMLNFe:
 
             # Separa notas por status
             processadas = grupo[grupo['Status'] == 'Processada'].copy()
-            pendentes = grupo[grupo['Status'] == 'Pendente'].copy()
-
             # Determina a nota correta
             if not processadas.empty:
                 # Se houver processadas, a correta é a de menor número entre as processadas
                 nota_correta = processadas.loc[processadas['NFCe'].idxmin()]
-            elif not pendentes.empty:
-                # Se todas forem pendentes, a correta é a de menor número
-                nota_correta = pendentes.loc[pendentes['NFCe'].idxmin()]
             else:
                 # Fallback: menor número do grupo
                 nota_correta = grupo.loc[grupo['NFCe'].idxmin()]
@@ -893,6 +923,9 @@ class ValidadorXMLNFe:
         self.df_principal['NFCe'] = pd.to_numeric(self.df_principal['NFCe'], errors='coerce')
         self.df_principal['Pedido'] = pd.to_numeric(self.df_principal['Pedido'], errors='coerce')
         self.df_principal['Valor'] = pd.to_numeric(self.df_principal['Valor'], errors='coerce')
+
+        # Mantém apenas a cancelada quando houver Processada + Cancelada para a mesma Série/NFCe
+        self.remover_processadas_com_cancelada_mesma_serie_nfce()
         
         self.df_principal = self.df_principal.sort_values(['Serie', 'NFCe']).reset_index(drop=True)
         

@@ -5,6 +5,25 @@ Todas as mudanças notáveis do Analisador de XMLs Fiscais serão documentadas n
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.3] - 2026-03-06
+
+### Corrigido
+- Ambiente de build ajustado para incluir `pyodbc` no executavel
+- Validacao cruzada com banco passa a ter suporte no artefato gerado via PyInstaller
+
+## [1.4.2] - 2026-03-06
+
+### Alterado
+- Pos-processamento adiciona saneamento de registros com mesma `Serie` e `NFCe`
+- Quando existir o par `Processada` e `Cancelada`, o registro `Processada` e removido e apenas `Cancelada` e mantido
+
+## [1.4.1] - 2026-03-06
+
+### Alterado
+- Notas enviadas sem autorizacao da Sefaz deixam de receber status `Pendente`
+- Toda nota nao cancelada passa a ser classificada como `Processada`
+- Regras auxiliares de duplicidade foram alinhadas para considerar apenas `Processada` e `Cancelada`
+
 ## [1.4.0] - 2026-01-29
 
 ### Adicionado
